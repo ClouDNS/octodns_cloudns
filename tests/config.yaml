@@ -1,0 +1,22 @@
+providers:
+  cloudns_account1:
+    class: octodns.provider.cloudns.ClouDNSProvider
+    auth_id: xxx
+    auth_password: xxx
+
+  config:
+    class: octodns.provider.yaml.YamlProvider
+    directory: ./config
+    default_ttl: 3600
+
+  cloudns_account2:
+    class: octodns.provider.cloudns.ClouDNSProvider
+    auth_id: xxx
+    auth_password: xxx
+
+zones:
+  recordsfortest.bg.:
+    sources:
+      - config
+    targets:
+      - cloudns_account1
