@@ -40,7 +40,7 @@ ClouDNSProvider suports GeoDNS records
 
 #### Records
 
-ClouDNSProvider suports AAAA, ALIAS, CAA, CNAME, DNAME, MX, NS, PTR, SPF, SRV, SSHFP, TXT, TLSA, LOC and NAPTR
+ClouDNSProvider suports А, AAAA, ALIAS, CAA, CNAME, DNAME, MX, NS, PTR, SPF, SRV, SSHFP, TXT, TLSA, LOC and NAPTR
 
 #### Dynamic
 
