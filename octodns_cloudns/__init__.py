@@ -75,7 +75,6 @@ class ClouDNSClient(object):
         
     def _raw_request(self, function, params=''):
         url = self._urlbase.format(function, params)
-        print(url)
         logger.debug(f"Request URL: {url}")
         response = self._session.get(url)
         logger.debug(f"Request Response: {response.text}")
