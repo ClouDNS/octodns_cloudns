@@ -75,6 +75,7 @@ class ClouDNSClient(object):
         
     def _raw_request(self, function, params=''):
         url = self._urlbase.format(function, params)
+        print(url)
         logger.debug(f"Request URL: {url}")
         response = self._session.get(url)
         logger.debug(f"Request Response: {response.text}")
@@ -117,7 +118,7 @@ class ClouDNSClient(object):
 
         single_types = ['CNAME', 'A', 'AAAA', 'DNAME', 'ALIAS', 'NS', 'PTR', 'SPF', 'TXT']
         if rrset_type in single_types:
-            params += '&record={}'.format(rrset_values[0])
+            params += '&record={}'.format(rrset_values[0].replace('\;', ';'))
             
         if(geodns is True):
             for location in rrset_locations:
@@ -153,14 +154,13 @@ class ClouDNSClient(object):
             
             params += '&priority={}&weight={}&port={}&record={}'.format(priority, weight, port,record)
             
-        if rrset_type == 'CAA':
-            values = rrset_values[0]
-            
+        if rrset_type == 'CAA':            
             caa_value = rrset_values[0]
+
             flag = caa_value.flags
             caa_type = caa_value.tag
             caa_value = caa_value.value
-            params += '&flag={}&caa_type={}&caa_value={}'.format(flag, caa_type, caa_value)
+            params += '&caa_flag={}&caa_type={}&caa_value={}'.format(flag, caa_type, caa_value)
             
         if rrset_type == 'LOC':
             values = rrset_values[0]
@@ -201,12 +201,12 @@ class ClouDNSClient(object):
                 params += '&regexp={}'.format(regexp)
                 
         if rrset_type == 'TLSA':
-            values = rrset_values[0].split()
-
-            record = values[0]
-            tlsa_usage = values[1]
-            tlsa_selector = values[2]
-            tlsa_matching_type = values[3]
+            tlsa_values = rrset_values[0]
+            
+            record = tlsa_values.certificate_association_data
+            tlsa_usage = tlsa_values.certificate_usage
+            tlsa_selector = tlsa_values.selector
+            tlsa_matching_type = tlsa_values.matching_type
 
             params += '&record={}&tlsa_usage={}&tlsa_selector={}&tlsa_matching_type={}'.format(record, tlsa_usage, tlsa_selector, tlsa_matching_type)
             
@@ -256,12 +256,17 @@ class ClouDNSProvider(BaseProvider):
             "type": _type,
             "values": [v["record"] + "." if v["type"] not in ["A", "AAAA", "TXT", "SPF"] else v["record"] for v in records],
         }
-
+        
+    def _data_for_TXT(self, _type, records):
+        return {
+            "ttl": records[0]["ttl"],
+            "type": _type,
+            "value": records[0]["record"].replace(';', '\\;') + ".",
+        }
 
 
     _data_for_A = _data_for_multiple
     _data_for_AAAA = _data_for_multiple
-    _data_for_TXT = _data_for_multiple
     _data_for_SPF = _data_for_multiple
     _data_for_NS = _data_for_multiple
 
@@ -632,6 +637,8 @@ class ClouDNSProvider(BaseProvider):
                     ):
                         record_ids.append(record_id)
                 else:
+                    if (record == 'Failed' or record == 'Missing domain-name'):
+                        continue
                     if (
                         existing.name == record['host']
                         and existing._type == record['type']
