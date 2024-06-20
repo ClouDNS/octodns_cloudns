@@ -8,7 +8,7 @@ from octodns.record import Record
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-__version__ = __VERSION__ = '0.0.1'
+__version__ = __VERSION__ = '0.0.2'
 
 class ClouDNSClientException(ProviderException):
     pass
@@ -117,7 +117,7 @@ class ClouDNSClient(object):
 
         single_types = ['CNAME', 'A', 'AAAA', 'DNAME', 'ALIAS', 'NS', 'PTR', 'SPF', 'TXT']
         if rrset_type in single_types:
-            params += '&record={}'.format(rrset_values[0].replace('\;', ';'))
+            params += '&record={}'.format(rrset_values[0].replace('\;', ';').replace('+', '%2B'))
             
         if(geodns is True):
             for location in rrset_locations:
@@ -260,8 +260,12 @@ class ClouDNSProvider(BaseProvider):
         return {
             "ttl": records[0]["ttl"],
             "type": _type,
-            "value": records[0]["record"].replace(';', '\\;') + ".",
+            "values": [
+                (record["record"].replace(';', '\\;').rstrip('.'))
+                for record in records
+            ]
         }
+
 
 
     _data_for_A = _data_for_multiple
@@ -408,7 +412,7 @@ class ClouDNSProvider(BaseProvider):
                 )
                 zone.add_record(record, lenient=lenient)
         exists = zone.name in self._zone_records
-        self.log.info(
+        print(
             "populate:   found %s records, exists=%s",
             len(zone.records) - before,
             exists,
@@ -643,6 +647,7 @@ class ClouDNSProvider(BaseProvider):
                         and existing._type == record['type']
                         and value == record['record']
                     ):
+                        print(record['record'])
                         record_ids.append(record_id)
         return record_ids
 
