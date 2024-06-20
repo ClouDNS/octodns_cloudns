@@ -8,7 +8,7 @@ from octodns.record import Record
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-__version__ = __VERSION__ = '0.0.3'
+__version__ = __VERSION__ = '0.0.4'
 
 class ClouDNSClientException(ProviderException):
     pass
@@ -64,7 +64,7 @@ class ClouDNSClient(object):
         # Currently hard-coded, but could offer XML in the future
         self._type = 'json'
         
-        self._urlbase = 'https://apidev.cloudns.net/{0}.{1}?{4}={2}&auth-password={3}&{0}'.format(
+        self._urlbase = 'https://api.cloudns.net/{0}.{1}?{4}={2}&auth-password={3}&{0}'.format(
             '{}', self._type, self.auth_id, self.auth_password, self._auth_type)
 
         
