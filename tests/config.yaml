@@ -2,7 +2,7 @@ providers:
   cloudns_account1:
     class: octodns.provider.cloudns.ClouDNSProvider
     auth_id: xxx
-    auth_password: xxx
+    auth_password: xxxx
 
   config:
     class: octodns.provider.yaml.YamlProvider

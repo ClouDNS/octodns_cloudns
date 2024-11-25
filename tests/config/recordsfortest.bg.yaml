@@ -1,34 +1,34 @@
 ---
-? ''
-: - geo:
+"":
+  - geo:
       AF:
-      - 2.2.3.4
-      - 2.2.3.5
+        - 2.2.3.4
+        - 2.2.3.5
       AS-JP:
-      - 3.2.3.4
-      - 3.2.3.5
+        - 3.2.3.4
+        - 3.2.3.5
       NA-US-CA:
-      - 4.2.3.4
-      - 4.2.3.5
+        - 4.2.3.4
+        - 4.2.3.5
     ttl: 300
     type: A
     values:
-    - 1.2.3.4
-    - 1.2.3.5
+      - 1.2.3.4
+      - 1.2.3.5
   - ttl: 3600
     type: SSHFP
     values:
-    - algorithm: 1
-      fingerprint: bf6b6825d2977c511a475bbefb88aad54a92ac73
-      fingerprint_type: 1
-    - algorithm: 1
-      fingerprint: 7491973e5f8b39d5327cd4e08bc81b05f7710b49
-      fingerprint_type: 1
+      - algorithm: 1
+        fingerprint: bf6b6825d2977c511a475bbefb88aad54a92ac73
+        fingerprint_type: 1
+      - algorithm: 1
+        fingerprint: 7491973e5f8b39d5327cd4e08bc81b05f7710b49
+        fingerprint_type: 1
   - type: CAA
     values:
-    - flags: 0
-      tag: issue
-      value: ca.unit.bg.
+      - flags: 0
+        tag: issue
+        value: ca.unit.bg.
 aaaa:
   ttl: 600
   type: AAAA
@@ -41,12 +41,6 @@ dname:
   ttl: 300
   type: DNAME
   value: unit.bg.
-excluded:
-  octodns:
-    excluded:
-    - test
-  type: CNAME
-  value: unit.bg.
 ignored:
   octodns:
     ignored: true
@@ -55,65 +49,65 @@ ignored:
 included:
   octodns:
     included:
-    - test
+      - test
   type: CNAME
   value: unit.bg.
 loc:
   ttl: 300
   type: LOC
   values:
-  - altitude: 20
-    lat_degrees: 31
-    lat_direction: S
-    lat_minutes: 58
-    lat_seconds: 52.1
-    long_degrees: 115
-    long_direction: E
-    long_minutes: 49
-    long_seconds: 11.7
-    precision_horz: 10
-    precision_vert: 2
-    size: 10
-  - altitude: 20
-    lat_degrees: 53
-    lat_direction: N
-    lat_minutes: 13
-    lat_seconds: 10
-    long_degrees: 2
-    long_direction: W
-    long_minutes: 18
-    long_seconds: 26
-    precision_horz: 1000
-    precision_vert: 2
-    size: 10
+    - altitude: 20
+      lat_degrees: 31
+      lat_direction: S
+      lat_minutes: 58
+      lat_seconds: 52.1
+      long_degrees: 115
+      long_direction: E
+      long_minutes: 49
+      long_seconds: 11.7
+      precision_horz: 10
+      precision_vert: 2
+      size: 10
+    - altitude: 20
+      lat_degrees: 53
+      lat_direction: N
+      lat_minutes: 13
+      lat_seconds: 10
+      long_degrees: 2
+      long_direction: W
+      long_minutes: 18
+      long_seconds: 26
+      precision_horz: 1000
+      precision_vert: 2
+      size: 10
 mx:
   ttl: 300
   type: MX
   values:
-  - exchange: smtp1.unit.test.
-    preference: 40
-  - exchange: smtp2.unit.test.
-    preference: 20
-  - exchange: smtp3.unit.test.
-    preference: 30
-  - priority: 10
-    value: smtp4.unit.test.
+    - exchange: smtp1.unit.test.
+      preference: 40
+    - exchange: smtp2.unit.test.
+      preference: 20
+    - exchange: smtp3.unit.test.
+      preference: 30
+    - priority: 10
+      value: smtp4.unit.test.
 naptr:
   ttl: 600
   type: NAPTR
   values:
-  - flags: U
-    order: 100
-    preference: 100
-    regexp: '!^.*$!sip:info@bar.example.com!'
-    replacement: .
-    service: SIP+D2U
-  - flags: S
-    order: 10
-    preference: 100
-    regexp: '!^.*$!sip:info@bar.example.com!'
-    replacement: .
-    service: SIP+D2U
+    - flags: U
+      order: 100
+      preference: 100
+      regexp: "!^.*$!sip:info@bar.example.com!"
+      replacement: .
+      service: SIP+D2U
+    - flags: S
+      order: 10
+      preference: 100
+      regexp: "!^.*$!sip:info@bar.example.com!"
+      replacement: .
+      service: SIP+D2U
 ptr:
   ttl: 300
   type: PTR
@@ -128,7 +122,7 @@ txt:
   values:
     - Bah bah black sheep
     - have you any wool.
-    - 'v=DKIM1k=rsas=emailh=sha256p=Akinda+oflongstring+with+numb3rs'
+    - "v=DKIM1k=rsas=emailh=sha256p=Akinda+oflongstring+with+numb3rs"
 www:
   ttl: 300
   type: A
