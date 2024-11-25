@@ -580,75 +580,89 @@ class ClouDNSProvider(BaseProvider):
         zone = existing.zone
         record_ids = []
         for record_id, record in self.zone_records(zone).items():
-            for value in existing.values:
-                if existing._type == 'NAPTR' and record['type'] == 'NAPTR':                    
-                    if (
-                        existing.name == record['host']
-                        and value.order == int(record['order'])
-                        and value.preference == int(record['pref'])
-                        and value.flags == record['flag']
-                    ):
-                        record_ids.append(record_id)
+                if existing._type == 'NAPTR' and record['type'] == 'NAPTR':
+                    for value in existing.values:
+                        if (
+                            existing.name == record['host']
+                            and value.order == int(record['order'])
+                            and value.preference == int(record['pref'])
+                            and value.flags == record['flag']
+                        ):
+                            record_ids.append(record_id)
                 elif existing._type == 'SSHFP' and record['type'] == 'SSHFP':
-                    if (
-                        existing.name == record['host']
-                        and value.fingerprint_type == int(record['fp_type'])
-                        and value.algorithm == int(record['algorithm'])
-                        and value.fingerprint == record['record']
-                    ):
-                        record_ids.append(record_id)
+                    for value in existing.values:
+                        if (
+                            existing.name == record['host']
+                            and value.fingerprint_type == int(record['fp_type'])
+                            and value.algorithm == int(record['algorithm'])
+                            and value.fingerprint == record['record']
+                        ):
+                            record_ids.append(record_id)
                 elif existing._type == 'SRV' and record['type'] == 'SRV':
-                    if (
-                        existing.name == record['host']
-                        and value.priority == int(record['priority'])
-                        and value.weight == int(record['weight'])
-                        and value.port == record['port']
-                        and value.target == record['record']
-                    ):
-                        record_ids.append(record_id)
+                    for value in existing.values:
+                        if (
+                            existing.name == record['host']
+                            and value.priority == int(record['priority'])
+                            and value.weight == int(record['weight'])
+                            and value.port == record['port']
+                            and value.target == record['record']
+                        ):
+                            record_ids.append(record_id)
                 elif existing._type == 'CAA' and record['type'] == 'CAA':
-                    if (
-                        existing.name == record['host']
-                        and value.flags == record['caa_flag']
-                        and value.tag == record['caa_type']
-                        and value.value == record['caa_value']
-                    ):
-                        record_ids.append(record_id)
+                    for value in existing.values:
+                        if (
+                            existing.name == record['host']
+                            and value.flags == record['caa_flag']
+                            and value.tag == record['caa_type']
+                            and value.value == record['caa_value']
+                        ):
+                            record_ids.append(record_id)
                 elif existing._type == 'MX' and record['type'] == 'MX':
-                    if (
-                        existing.name == record['host']
-                        and value.preference == int(record['priority'])
-                        and value.exchange == record['record']
-                    ):
-                        record_ids.append(record_id)
+                    for value in existing.values:
+                        if (
+                            existing.name == record['host']
+                            and value.preference == int(record['priority'])
+                            and value.exchange == record['record']
+                        ):
+                            record_ids.append(record_id)
                         
                 elif existing._type == 'LOC' and record['type'] == 'LOC':
-                    if (
-                        existing.name == record['host']
-                        and value.lat_degrees == record['lat_deg']
-                        and value.lat_minutes == record['lat_min']
-                        and value.lat_seconds == record['lat_sec']
-                        and value.lat_direction == record['lat_dir']
-                        and value.long_degrees == record['long_deg']
-                        and value.long_minutes == record['long_min']
-                        and value.long_seconds == record['long_sec']
-                        and value.long_direction == record['long_dir']
-                        and value.altitude == record['altitude']
-                        and value.size == record['size']
-                        and value.precision_horz == record['h_precision']
-                        and value.precision_vert == record['v_precision']
-                    ):
-                        record_ids.append(record_id)
+                    for value in existing.values:
+                        if (
+                            existing.name == record['host']
+                            and value.lat_degrees == record['lat_deg']
+                            and value.lat_minutes == record['lat_min']
+                            and value.lat_seconds == record['lat_sec']
+                            and value.lat_direction == record['lat_dir']
+                            and value.long_degrees == record['long_deg']
+                            and value.long_minutes == record['long_min']
+                            and value.long_seconds == record['long_sec']
+                            and value.long_direction == record['long_dir']
+                            and value.altitude == record['altitude']
+                            and value.size == record['size']
+                            and value.precision_horz == record['h_precision']
+                            and value.precision_vert == record['v_precision']
+                        ):
+                            record_ids.append(record_id)
                 else:
                     if (record == 'Failed' or record == 'Missing domain-name'):
                         continue
-                    if (
-                        existing.name == record['host']
-                        and existing._type == record['type']
-                        and value == record['record']
-                    ):
-                        print(record['record'])
-                        record_ids.append(record_id)
+                    
+                    if hasattr(existing, 'value'):
+                        if (
+                            existing.name == record['host']
+                            and existing._type == record['type']
+                            and existing.value == record['record']
+                        ):
+                            record_ids.append(record_id)
+                    elif hasattr(existing, 'values'):
+                        for value in existing.values:
+                            if (
+                                existing.name == record['host']
+                                and existing._type == record['type']
+                                and value == record['record']
+                            ):
+                                record_ids.append(record_id)
         return record_ids
 
 
