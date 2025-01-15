@@ -412,7 +412,7 @@ class ClouDNSProvider(BaseProvider):
                 )
                 zone.add_record(record, lenient=lenient)
         exists = zone.name in self._zone_records
-        print(
+        self.log.debug(
             "populate:   found %s records, exists=%s",
             len(zone.records) - before,
             exists,
