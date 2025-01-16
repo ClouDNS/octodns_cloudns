@@ -44,7 +44,8 @@ class ClouDNSClientGeoDNSNotSupported(ClouDNSClientException):
 
 
 class ClouDNSClient(object):
-    def __init__(self, auth_id, auth_password, sub_auth=False):
+    def __init__(self, auth_id, auth_password, id, sub_auth=False):
+        self.log = getLogger(f"ClouDNSProvider[{id}]")
         session = Session()
         session.headers.update(
             {
@@ -75,9 +76,9 @@ class ClouDNSClient(object):
         
     def _raw_request(self, function, params=''):
         url = self._urlbase.format(function, params)
-        logger.debug(f"Request URL: {url}")
+        self.log.debug(f"Request URL: {url}")
         response = self._session.get(url)
-        logger.debug(f"Request Response: {response.text}")
+        self.log.debug(f"Request Response: {response.text}")
         return response
         
     def _handle_response(self, response):
@@ -245,7 +246,7 @@ class ClouDNSProvider(BaseProvider):
         self.log = getLogger(f"ClouDNSProvider[{id}]")
         self.log.debug("__init__: id=%s, auth_id=***", id)
         super().__init__(id, *args, **kwargs)
-        self._client = ClouDNSClient(auth_id, auth_password)
+        self._client = ClouDNSClient(auth_id, auth_password, id)
 
         self._zone_records = {}
 
@@ -412,7 +413,7 @@ class ClouDNSProvider(BaseProvider):
                 )
                 zone.add_record(record, lenient=lenient)
         exists = zone.name in self._zone_records
-        print(
+        self.log.debug(
             "populate:   found %s records, exists=%s",
             len(zone.records) - before,
             exists,
