@@ -10,27 +10,29 @@ An [octoDNS](https://github.com/octodns/octodns/) provider that targets ClouDNS.
 pip install octodns-cloudns
 ```
 
-#### requirements.txt/setup.py
-
-Pinning specific versions or SHAs is recommended to avoid unplanned upgrades.
-
-##### Versions
-
-```
-# Start with the latest versions and don't just copy what's here
-octodns==0.9.14
-octodns-cloudns==0.0.1
-```
-
 ### Configuration
+
+For more safety, we recommend you to use an API sub-user with limited permissions.
+You can create it from [your ClouDNS account](https://www.cloudns.net/api-settings/)
+and store your credentials in environment variables:
+
+```bash
+export CLOUDNS_API_AUTH_ID=XXXXX
+export CLOUDNS_API_AUTH_PASSWORD=XXXXX
+```
+
+Then add your ClouDNS account to your octoDNS configuration file:
 
 ```yaml
 providers:
   cloudns_account:
-    class: octodns.provider.cloudns.ClouDNSProvider
-    auth_id: <api_auth_id>
-    auth_password: <api_auth_password>
+    class: octodns_cloudns.ClouDNSProvider
+    auth_id: env/CLOUDNS_API_AUTH_ID
+    auth_password: env/CLOUDNS_API_AUTH_PASSWORD
+    # "sub_auth" must be enabled if *only* you log in using a sub-user.
+    sub_auth: true
 ```
+
 
 ### Support Information
 

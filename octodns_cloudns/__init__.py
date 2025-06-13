@@ -242,11 +242,11 @@ class ClouDNSProvider(BaseProvider):
         ]
     )
 
-    def __init__(self, id, auth_id, auth_password, *args, **kwargs):
+    def __init__(self, id, auth_id, auth_password, sub_auth=False, *args, **kwargs):
         self.log = getLogger(f"ClouDNSProvider[{id}]")
-        self.log.debug("__init__: id=%s, auth_id=***", id)
+        self.log.debug("__init__: id=%s, auth_id=***, auth_password=***, sub_auth=%s", id, sub_auth)
         super().__init__(id, *args, **kwargs)
-        self._client = ClouDNSClient(auth_id, auth_password, id)
+        self._client = ClouDNSClient(auth_id, auth_password, id, sub_auth)
 
         self._zone_records = {}
 
