@@ -8,7 +8,7 @@ from octodns.record import Record
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-__version__ = __VERSION__ = '0.0.4'
+__version__ = __VERSION__ = '0.0.8'
 
 class ClouDNSClientException(ProviderException):
     pass
@@ -372,27 +372,10 @@ class ClouDNSProvider(BaseProvider):
 
         values = defaultdict(lambda: defaultdict(list))
         records_data = self.zone_records(zone)
-        
+
         if 'status' in records_data and records_data['status'] == 'Failed':
-            self.log.info("populate: no existing zone, trying to create it")
-            response = self._client.zone_create(zone.name[:-1], 'master')
-            if 'id' in response and response['id'] == 'not_found':
-                e = ClouDNSClientUnknownDomainName(
-                    'Missing domain name'
-                )
-                e.__cause__ = None
-                raise e
-            
-            if (self.isGeoDNS(response['statusDescription'])):
-                response = self._client.zone_create(zone.name[:-1], 'geodns')
-            
-            if(response['status'] == 'Failed'):
-                e = ClouDNSClientUnknownDomainName(f"{response['status']} : {response['statusDescription']}")
-                e.__cause__ = None
-                raise e
-            self.log.info("populate: zone has been successfully created")
-            records_data = self._client.zone_records(zone.name[:-1])
-            
+            return []
+
         for record_id, record in records_data.items():
             _type = record["type"]
             
@@ -680,27 +663,24 @@ class ClouDNSProvider(BaseProvider):
         desired = plan.desired
         
         changes = plan.changes
-        zone = desired.name[:-1]
+        zone_name = desired.name[:-1]
         self.log.debug("_apply: zone=%s, len(changes)=%d", desired.name, len(changes))
 
-        try:
-            self._client.zone(zone)
-        except ClouDNSClientNotFound:
-            self.log.info("_apply: no existing zone, trying to create it")
-            try:
-                self._client.zone_create(zone, 'master')
-                self.log.info("_apply: zone has been successfully created")
-            except ClouDNSClientNotFound:
-                e = ClouDNSClientUnknownDomainName(
-                    "Domain " + zone + " is not "
-                    "registered at ClouDNS. "
-                    "Please register or "
-                    "transfer it here "
-                    "to be able to manage its "
-                    "DNS zone."
-                )
-                e.__cause__ = None
-                raise e
+        # Does the zone actually exist?
+        zone = self._client.zone(zone_name)
+        if zone['status'] == 'Failed':
+            # All errors other than nonexistent zone.
+            if not zone['statusDescription'] == 'Missing domain-name':
+                raise ClouDNSClientException(zone)
+
+            # Check if subscription only allows GeoDNS zones.
+            geodns_only = self.isGeoDNS(zone['statusDescription'])
+
+            # Trying to create the zone.
+            zone = self._client.zone_create(zone_name, 'geodns' if geodns_only else 'master')
+            if zone['status'] == 'Failed':
+                raise ClouDNSClientException(zone)
+            self.log.info("_apply: zone has been successfully created")
 
         for change in changes:
             class_name = change.__class__.__name__
