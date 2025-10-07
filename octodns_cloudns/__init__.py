@@ -118,7 +118,7 @@ class ClouDNSClient(object):
 
         single_types = ['CNAME', 'A', 'AAAA', 'DNAME', 'ALIAS', 'NS', 'PTR', 'SPF', 'TXT']
         if rrset_type in single_types:
-            params += '&record={}'.format(rrset_values[0].replace('\;', ';').replace('+', '%2B'))
+            params += '&record={}'.format(rrset_values[0].replace(r'\;', ';').replace('+', '%2B'))
             
         if(geodns is True):
             for location in rrset_locations:
