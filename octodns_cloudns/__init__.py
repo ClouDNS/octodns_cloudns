@@ -606,7 +606,7 @@ class ClouDNSProvider(BaseProvider):
                         if (
                             existing.name == record['host']
                             and value.preference == int(record['priority'])
-                            and value.exchange == record['record']
+                            and value.exchange == record['record']+'.'
                         ):
                             record_ids.append(record_id)
                         
@@ -629,6 +629,13 @@ class ClouDNSProvider(BaseProvider):
                         ):
                             record_ids.append(record_id)
                 elif existing._type == 'CNAME' and record['type'] == 'CNAME':
+                    if (
+                            existing.name == record['host']
+                            and existing._type == record['type']
+                            and existing.value == record['record']+'.'
+                    ):
+                        record_ids.append(record_id)
+                elif existing._type == 'PTR' and record['type'] == 'PTR':
                     if (
                             existing.name == record['host']
                             and existing._type == record['type']
