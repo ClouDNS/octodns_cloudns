@@ -8,7 +8,7 @@ from octodns.record import Record
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-__version__ = __VERSION__ = '0.0.10'
+__version__ = __VERSION__ = '0.0.12'
 
 class ClouDNSClientException(ProviderException):
     pass
