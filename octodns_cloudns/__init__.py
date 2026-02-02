@@ -635,6 +635,13 @@ class ClouDNSProvider(BaseProvider):
                             and existing.value == record['record']+'.'
                     ):
                         record_ids.append(record_id)
+                elif existing._type == 'PTR' and record['type'] == 'PTR':
+                    if (
+                            existing.name == record['host']
+                            and existing._type == record['type']
+                            and existing.value == record['record']+'.'
+                    ):
+                        record_ids.append(record_id)
                 else:
                     if (record == 'Failed' or record == 'Missing domain-name'):
                         continue
