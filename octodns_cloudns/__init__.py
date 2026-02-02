@@ -606,7 +606,7 @@ class ClouDNSProvider(BaseProvider):
                         if (
                             existing.name == record['host']
                             and value.preference == int(record['priority'])
-                            and value.exchange == record['record']
+                            and value.exchange == record['record']+'.'
                         ):
                             record_ids.append(record_id)
                         
