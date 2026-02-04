@@ -658,7 +658,7 @@ class ClouDNSProvider(BaseProvider):
                             if (
                                 existing.name == record['host']
                                 and existing._type == record['type']
-                                and (existing.value == record['record'] or existing.value == (record['record']+'.'))
+                                and (value == record['record'] or value == (record['record']+'.'))
                             ):
                                 record_ids.append(record_id)
         return record_ids
