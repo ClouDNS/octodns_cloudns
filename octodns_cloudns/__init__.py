@@ -71,8 +71,14 @@ class ClouDNSClient(object):
         
     def _request(self, function, params=''):
         response = self._raw_request(function, params)
+        self._handle_response(response)
         if self._type == 'json':
-            return response.json()
+            data = response.json()
+            if isinstance(data, dict) and data.get('status') == 'Failed':
+                raise ClouDNSClientException(
+                    f"ClouDNS API error: {data.get('statusDescription', 'Unknown error')}"
+                )
+            return data
         
     def _raw_request(self, function, params=''):
         url = self._urlbase.format(function, params)
@@ -352,8 +358,8 @@ class ClouDNSProvider(BaseProvider):
         if zone.name not in self._zone_records:
             try:
                 self._zone_records[zone.name] = self._client.zone_records(zone.name[:-1])
-            except ClouDNSClientNotFound:
-                return []
+            except (ClouDNSClientNotFound, ClouDNSClientException):
+                return {}
         return self._zone_records[zone.name]
     
     def isGeoDNS(self, statusDescription):
@@ -372,9 +378,6 @@ class ClouDNSProvider(BaseProvider):
 
         values = defaultdict(lambda: defaultdict(list))
         records_data = self.zone_records(zone)
-
-        if 'status' in records_data and records_data['status'] == 'Failed':
-            return []
 
         for record_id, record in records_data.items():
             _type = record["type"]
@@ -681,19 +684,14 @@ class ClouDNSProvider(BaseProvider):
         self.log.debug("_apply: zone=%s, len(changes)=%d", desired.name, len(changes))
 
         # Does the zone actually exist?
-        zone = self._client.zone(zone_name)
-        if zone['status'] == 'Failed':
-            # All errors other than nonexistent zone.
-            if not zone['statusDescription'] == 'Missing domain-name':
-                raise ClouDNSClientException(zone)
+        try:
+            zone = self._client.zone(zone_name)
+        except ClouDNSClientException as e:
+            if 'Missing domain-name' not in str(e):
+                raise
 
-            # Check if subscription only allows GeoDNS zones.
-            geodns_only = self.isGeoDNS(zone['statusDescription'])
-
-            # Trying to create the zone.
+            geodns_only = self.isGeoDNS(str(e))
             zone = self._client.zone_create(zone_name, 'geodns' if geodns_only else 'master')
-            if zone['status'] == 'Failed':
-                raise ClouDNSClientException(zone)
             self.log.info("_apply: zone has been successfully created")
 
         for change in changes:
