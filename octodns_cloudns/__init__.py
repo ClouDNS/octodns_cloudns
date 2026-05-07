@@ -14,26 +14,33 @@ logger = logging.getLogger(__name__)
 __version__ = __VERSION__ = '0.0.15'
 
 
-def rate_limit(calls_per_second: float):
+def rate_limit():
     """
     Decorator that limits a function to N calls per second.
     Blocks (sleeps) when limit is exceeded.
     Thread-safe.
     """
-    interval = 1.0 / float(calls_per_second)
 
     def decorator(func):
         lock = threading.Lock()
-        last_call = [0.0]  # mutable container
+        last_call = [0.0]
 
         @wraps(func)
         def wrapper(*args, **kwargs):
+            self = args[0]  # access to the instance
+
+            logger = getattr(self, "log")
+            rate = getattr(self, "_calls_per_seconds")
+            interval = 1.0 / float(rate)
+
             with lock:
                 now = time.time()
                 elapsed = now - last_call[0]
                 wait = interval - elapsed
 
                 if wait > 0:
+                    logger.warning(
+                        f"API rate limit throttle ({self._calls_per_seconds}/s). Waiting for {wait} seconds.")
                     time.sleep(wait)
 
                 last_call[0] = time.time()
@@ -43,7 +50,6 @@ def rate_limit(calls_per_second: float):
         return wrapper
 
     return decorator
-
 
 class ClouDNSClientException(ProviderException):
     pass
@@ -81,6 +87,7 @@ class ClouDNSClientGeoDNSNotSupported(ClouDNSClientException):
 class ClouDNSClient(object):
     def __init__(self, auth_id, auth_password, id, sub_auth=False):
         self.log = getLogger(f"ClouDNSProvider[{id}]")
+        self._calls_per_seconds = 20
         session = Session()
         session.headers.update(
             {
@@ -103,7 +110,6 @@ class ClouDNSClient(object):
         self._urlbase = 'https://api.cloudns.net/{0}.{1}?{4}={2}&auth-password={3}&{0}'.format(
             '{}', self._type, self.auth_id, self.auth_password, self._auth_type)
 
-        
     def _request(self, function, params=''):
         response = self._raw_request(function, params)
         self._handle_response(response)
@@ -115,7 +121,7 @@ class ClouDNSClient(object):
                 )
             return data
 
-    @rate_limit(20)
+    @rate_limit()
     def _raw_request(self, function, params=''):
         url = self._urlbase.format(function, params)
         self.log.debug(f"Request URL: {url}")
@@ -354,8 +360,6 @@ class ClouDNSProvider(BaseProvider):
                 values.append({"preference": record['priority'], "exchange": record['record'] + '.'})
         return {"ttl": records[0]["ttl"], "type": _type, "values": values}
 
-
-
     def _data_for_SRV(self, _type, records):
         values = []
         for record in records:
@@ -442,7 +446,6 @@ class ClouDNSProvider(BaseProvider):
         )
         return exists
 
-
     def _record_name(self, name):
         return name if name else ""
 
@@ -480,7 +483,6 @@ class ClouDNSProvider(BaseProvider):
             "rrset_locations": [str(v) for v in locations]
         }
 
-        
     def _params_for_A_AAAA(self, record):
         if getattr(record, 'geo', False):
             return self._params_for_geo(record)
@@ -725,7 +727,6 @@ class ClouDNSProvider(BaseProvider):
         
         for record_id in record_ids:
             self._client.record_delete(zone.name[:-1], record_id)
-
 
     def _apply(self, plan):
         desired = plan.desired
