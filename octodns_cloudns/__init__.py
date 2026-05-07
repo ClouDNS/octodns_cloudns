@@ -3,12 +3,47 @@ from logging import getLogger
 from requests import Session
 from octodns.provider import ProviderException
 import logging
+import time
+import threading
+from functools import wraps
 from octodns.provider.base import BaseProvider
-from octodns.record import Record
+from octodns.record import Record, Change
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 __version__ = __VERSION__ = '0.0.15'
+
+
+def rate_limit(calls_per_second: float):
+    """
+    Decorator that limits a function to N calls per second.
+    Blocks (sleeps) when limit is exceeded.
+    Thread-safe.
+    """
+    interval = 1.0 / float(calls_per_second)
+
+    def decorator(func):
+        lock = threading.Lock()
+        last_call = [0.0]  # mutable container
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            with lock:
+                now = time.time()
+                elapsed = now - last_call[0]
+                wait = interval - elapsed
+
+                if wait > 0:
+                    time.sleep(wait)
+
+                last_call[0] = time.time()
+
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
 
 class ClouDNSClientException(ProviderException):
     pass
@@ -79,7 +114,8 @@ class ClouDNSClient(object):
                     f"ClouDNS API error: {data.get('statusDescription', 'Unknown error')}"
                 )
             return data
-        
+
+    @rate_limit(20)
     def _raw_request(self, function, params=''):
         url = self._urlbase.format(function, params)
         self.log.debug(f"Request URL: {url}")
@@ -217,7 +253,7 @@ class ClouDNSClient(object):
             params += '&record={}&tlsa_usage={}&tlsa_selector={}&tlsa_matching_type={}'.format(record, tlsa_usage, tlsa_selector, tlsa_matching_type)
             
         return self._request('dns/add-record', params)
-    
+
     def record_delete(self, domain_name, record_id):
         params = 'domain-name={}&record-id={}'.format(domain_name, record_id)
         return self._request('dns/delete-record', params)
@@ -560,12 +596,28 @@ class ClouDNSProvider(BaseProvider):
             self._client.record_create(new.zone.name[:-1], **data)
 
     def _apply_update(self, change):
-        self._apply_delete(change)
-        self._apply_create(change)
-        
-    def records_are_same(self, existing):
+        existing = change.existing
         zone = existing.zone
-        record_ids = []
+
+        # this gives us a list of all API records related to a DNS record (ex: each TXT value for a DNS record is an API record)
+        records = self._records_are_same(existing)
+        to_delete = set(existing.values).difference(change.new.values)
+        for record in records:
+            if record['record'] in to_delete:
+                self._client.record_delete(zone.name[:-1], record['id'])
+
+        to_create = set(change.new.values).difference(existing.values)
+        stripped_change = Change(existing=existing,new=change.new)
+        stripped_change.new.values = to_create
+        self._apply_create(stripped_change)
+
+    def records_are_same(self, exiting):
+        records = self._records_are_same(exiting)
+        return [record_id['id'] for record_id in records if 'id' in record_id]
+
+    def _records_are_same(self, existing):
+        zone = existing.zone
+        records = []
         for record_id, record in self.zone_records(zone).items():
                 if existing._type == 'NAPTR' and record['type'] == 'NAPTR':
                     for value in existing.values:
@@ -575,7 +627,7 @@ class ClouDNSProvider(BaseProvider):
                             and value.preference == int(record['pref'])
                             and value.flags == record['flag']
                         ):
-                            record_ids.append(record_id)
+                            records.append(record)
                 elif existing._type == 'SSHFP' and record['type'] == 'SSHFP':
                     for value in existing.values:
                         if (
@@ -584,7 +636,7 @@ class ClouDNSProvider(BaseProvider):
                             and value.algorithm == int(record['algorithm'])
                             and value.fingerprint == record['record']
                         ):
-                            record_ids.append(record_id)
+                            records.append(record)
                 elif existing._type == 'SRV' and record['type'] == 'SRV':
                     for value in existing.values:
                         if (
@@ -594,7 +646,7 @@ class ClouDNSProvider(BaseProvider):
                             and value.port == record['port']
                             and value.target == record['record']
                         ):
-                            record_ids.append(record_id)
+                            records.append(record)
                 elif existing._type == 'CAA' and record['type'] == 'CAA':
                     for value in existing.values:
                         if (
@@ -603,7 +655,7 @@ class ClouDNSProvider(BaseProvider):
                             and value.tag == record['caa_type']
                             and value.value == record['caa_value']
                         ):
-                            record_ids.append(record_id)
+                            records.append(record)
                 elif existing._type == 'MX' and record['type'] == 'MX':
                     for value in existing.values:
                         if (
@@ -611,7 +663,7 @@ class ClouDNSProvider(BaseProvider):
                             and value.preference == int(record['priority'])
                             and (existing.value == record['record'] or existing.value == (record['record']+'.') )
                         ):
-                            record_ids.append(record_id)
+                            records.append(record)
                         
                 elif existing._type == 'LOC' and record['type'] == 'LOC':
                     for value in existing.values:
@@ -630,21 +682,21 @@ class ClouDNSProvider(BaseProvider):
                             and value.precision_horz == record['h_precision']
                             and value.precision_vert == record['v_precision']
                         ):
-                            record_ids.append(record_id)
+                            records.append(record)
                 elif existing._type == 'CNAME' and record['type'] == 'CNAME':
                     if (
                             existing.name == record['host']
                             and existing._type == record['type']
                             and (existing.value == record['record'] or existing.value == (record['record']+'.'))
                     ):
-                        record_ids.append(record_id)
+                        records.append(record)
                 elif existing._type == 'PTR' and record['type'] == 'PTR':
                     if (
                             existing.name == record['host']
                             and existing._type == record['type']
                             and (existing.value == record['record'] or existing.value == (record['record']+'.'))
                     ):
-                        record_ids.append(record_id)
+                        records.append(record)
                 else:
                     if (record == 'Failed' or record == 'Missing domain-name'):
                         continue
@@ -655,7 +707,7 @@ class ClouDNSProvider(BaseProvider):
                             and existing._type == record['type']
                             and existing.value == record['record']
                         ):
-                            record_ids.append(record_id)
+                            records.append(record)
                     elif hasattr(existing, 'values'):
                         for value in existing.values:
                             if (
@@ -663,9 +715,8 @@ class ClouDNSProvider(BaseProvider):
                                 and existing._type == record['type']
                                 and (value == record['record'] or value == (record['record']+'.'))
                             ):
-                                record_ids.append(record_id)
-        return record_ids
-
+                                records.append(record)
+        return records
 
     def _apply_delete(self, change):
         existing = change.existing
