@@ -49,7 +49,7 @@ class ClouDNSClientGeoDNSNotSupported(ClouDNSClientException):
 class ClouDNSClient(object):
     def __init__(self, auth_id, auth_password, id, sub_auth=False):
         self.log = getLogger(f"ClouDNSProvider[{id}]")
-        self._calls_per_seconds = 20
+        self._calls_per_seconds = 19 # its 20/s but leave some margin for error
         self._calls_interval = 1.0 / float(self._calls_per_seconds)
         self._api_lock = threading.Lock()
         self._api_last_call = [0.0]
@@ -622,8 +622,8 @@ class ClouDNSProvider(BaseProvider):
                             existing.name == record['host']
                             and value.priority == int(record['priority'])
                             and value.weight == int(record['weight'])
-                            and value.port == record['port']
-                            and value.target == record['record']
+                            and value.port == int(record['port'])
+                            and (value.target == record['record'] or value.target == record['record']+'.')
                         ):
                             records.append(record)
                 elif existing._type == 'CAA' and record['type'] == 'CAA':
@@ -640,7 +640,7 @@ class ClouDNSProvider(BaseProvider):
                         if (
                             existing.name == record['host']
                             and value.preference == int(record['priority'])
-                            and (existing.value == record['record'] or existing.value == (record['record']+'.') )
+                            and (value.exchange == record['record'] or value.exchange == (record['record']+'.') )
                         ):
                             records.append(record)
                         
@@ -676,6 +676,25 @@ class ClouDNSProvider(BaseProvider):
                             and (existing.value == record['record'] or existing.value == (record['record']+'.'))
                     ):
                         records.append(record)
+                elif existing._type == 'TXT' and record['type'] == 'TXT':
+                    if hasattr(existing, 'value'):
+                        txt_value = existing.value.replace('\\;', ';')
+                        if (
+                            existing.name == record['host']
+                            and existing._type == record['type']
+                            and txt_value == record['record']
+                        ):
+                            records.append(record)
+                    elif hasattr(existing, 'values'):
+                        for value in existing.values:
+                            txt_value = value.replace('\\;', ';')
+                            if (
+                                existing.name == record['host']
+                                and existing._type == record['type']
+                                and (txt_value == record['record'])
+                            ):
+                                records.append(record)
+
                 else:
                     if (record == 'Failed' or record == 'Missing domain-name'):
                         continue
