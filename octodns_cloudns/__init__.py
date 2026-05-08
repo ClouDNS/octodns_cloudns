@@ -13,44 +13,6 @@ logger = logging.getLogger(__name__)
 
 __version__ = __VERSION__ = '0.0.15'
 
-
-def rate_limit():
-    """
-    Decorator that limits a function to N calls per second.
-    Blocks (sleeps) when limit is exceeded.
-    Thread-safe.
-    """
-
-    def decorator(func):
-        lock = threading.Lock()
-        last_call = [0.0]
-
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            self = args[0]  # access to the instance
-
-            logger = getattr(self, "log")
-            rate = getattr(self, "_calls_per_seconds")
-            interval = 1.0 / float(rate)
-
-            with lock:
-                now = time.time()
-                elapsed = now - last_call[0]
-                wait = interval - elapsed
-
-                if wait > 0:
-                    logger.warning(
-                        f"API rate limit throttle ({self._calls_per_seconds}/s). Waiting for {wait} seconds.")
-                    time.sleep(wait)
-
-                last_call[0] = time.time()
-
-            return func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
-
 class ClouDNSClientException(ProviderException):
     pass
 
@@ -88,6 +50,9 @@ class ClouDNSClient(object):
     def __init__(self, auth_id, auth_password, id, sub_auth=False):
         self.log = getLogger(f"ClouDNSProvider[{id}]")
         self._calls_per_seconds = 20
+        self._calls_interval = 1.0 / float(self._calls_per_seconds)
+        self._api_lock = threading.Lock()
+        self._api_last_call = [0.0]
         session = Session()
         session.headers.update(
             {
@@ -121,11 +86,23 @@ class ClouDNSClient(object):
                 )
             return data
 
-    @rate_limit()
     def _raw_request(self, function, params=''):
         url = self._urlbase.format(function, params)
         self.log.debug(f"Request URL: {url}")
-        response = self._session.get(url)
+
+        with self._api_lock:
+            now = time.time()
+            elapsed = now - self._api_last_call[0]
+            wait = self._calls_interval - elapsed
+
+            if wait > 0:
+                self.log.warning(
+                    f"API rate limit throttle ({self._calls_per_seconds}/s). Waiting for {wait:.3f} seconds.")
+                time.sleep(wait)
+
+            self._api_last_call[0] = time.time()
+            response = self._session.get(url)
+
         self.log.debug(f"Request Response: {response.text}")
         return response
         
