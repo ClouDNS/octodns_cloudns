@@ -677,23 +677,14 @@ class ClouDNSProvider(BaseProvider):
                     ):
                         records.append(record)
                 elif existing._type == 'TXT' and record['type'] == 'TXT':
-                    if hasattr(existing, 'value'):
-                        txt_value = existing.value.replace('\\;', ';')
+                    for value in existing.values:
+                        txt_value = value.replace('\\;', ';')
                         if (
                             existing.name == record['host']
                             and existing._type == record['type']
-                            and txt_value == record['record']
+                            and (txt_value == record['record'])
                         ):
                             records.append(record)
-                    elif hasattr(existing, 'values'):
-                        for value in existing.values:
-                            txt_value = value.replace('\\;', ';')
-                            if (
-                                existing.name == record['host']
-                                and existing._type == record['type']
-                                and (txt_value == record['record'])
-                            ):
-                                records.append(record)
 
                 else:
                     if (record == 'Failed' or record == 'Missing domain-name'):
