@@ -590,8 +590,8 @@ class ClouDNSProvider(BaseProvider):
         stripped_change.new.values = to_create
         self._apply_create(stripped_change)
 
-    def records_are_same(self, exiting):
-        records = self._records_are_same(exiting)
+    def records_are_same(self, existing):
+        records = self._records_are_same(existing)
         return [record_id['id'] for record_id in records if 'id' in record_id]
 
     def _records_are_same(self, existing):
