@@ -1,8 +1,8 @@
 import os
 import unittest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, call, patch, MagicMock
 from octodns.zone import Zone
-from octodns.record import Record
+from octodns.record import Record, Update
 from octodns_cloudns import (
     ClouDNSProvider,
     ClouDNSClient,
@@ -217,6 +217,55 @@ class TestClouDNSProvider(unittest.TestCase):
         self.assertEqual(geo_a_record.name, '')
         self.assertEqual(str(geo_a_record.data['value']), "192.168.1.1")
         self.assertEqual(str(geo_a_record.data['geo']), "{'AF': ['2.2.3.4', '2.2.3.5'], 'AS-JP': ['3.2.3.4', '3.2.3.5'], 'NA-US-CA': ['4.2.3.4', '4.2.3.5']}")
+
+    def test_apply_update_replaces_unhashable_caa_values(self):
+        zone = Zone('example.com.', [])
+        existing = Record.new(
+            zone,
+            '',
+            {
+                'type': 'CAA',
+                'ttl': 86400,
+                'values': [
+                    {'flags': 0, 'tag': 'issuewild', 'value': ';'},
+                    {
+                        'flags': 0,
+                        'tag': 'issue',
+                        'value': 'letsencrypt.org',
+                    },
+                ],
+            },
+        )
+        desired = Record.new(
+            zone,
+            '',
+            {
+                'type': 'CAA',
+                'ttl': 86400,
+                'values': [
+                    {'flags': 0, 'tag': 'issuewild', 'value': ';'},
+                    {
+                        'flags': 0,
+                        'tag': 'issue',
+                        'value': 'letsencrypt.org',
+                    },
+                    {'flags': 0, 'tag': 'issue', 'value': 'ssl.com'},
+                ],
+            },
+        )
+        change = Update(existing, desired)
+        self.provider._records_are_same = Mock(
+            return_value=[{'id': '101'}, {'id': '102'}]
+        )
+        self.provider._client = Mock()
+        self.provider._apply_create = Mock()
+
+        self.provider._apply_update(change)
+
+        self.provider._client.record_delete.assert_has_calls(
+            [call('example.com', '101'), call('example.com', '102')]
+        )
+        self.provider._apply_create.assert_called_once_with(change)
 
 
 class TestClouDNSClientErrorHandling(unittest.TestCase):

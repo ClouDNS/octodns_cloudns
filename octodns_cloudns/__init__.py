@@ -580,12 +580,26 @@ class ClouDNSProvider(BaseProvider):
 
         # this gives us a list of all API records related to a DNS record (ex: each TXT value for a DNS record is an API record)
         records = self._records_are_same(existing)
-        to_delete = set(existing.values).difference(change.new.values)
+        try:
+            to_delete = set(existing.values).difference(change.new.values)
+            to_create = set(change.new.values).difference(existing.values)
+        except TypeError:
+            replace_all = True
+        else:
+            replace_all = any('record' not in record for record in records)
+
+        if replace_all:
+            # Structured values such as CAA can be unhashable and their API
+            # records use type-specific fields instead of `record`.
+            for record in records:
+                self._client.record_delete(zone.name[:-1], record['id'])
+            self._apply_create(change)
+            return
+
         for record in records:
             if record['record'] in to_delete:
                 self._client.record_delete(zone.name[:-1], record['id'])
 
-        to_create = set(change.new.values).difference(existing.values)
         stripped_change = Change(existing=existing,new=change.new)
         stripped_change.new.values = to_create
         self._apply_create(stripped_change)
