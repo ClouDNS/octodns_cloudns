@@ -43,7 +43,7 @@ setup(
         'test': tests_require,
     },
     install_requires=('octodns>=0.9.17', 'requests>=2.27.0'),
-    license='GPL-3.0',
+    license='MIT',
     long_description=long_description,
     long_description_content_type='text/markdown',
     name='octodns-cloudns',
