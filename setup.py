@@ -6,7 +6,7 @@ from setuptools import find_packages, setup
 def descriptions():
     with open('README.md') as fh:
         ret = fh.read()
-        first = ret.split('\n', 1)[0].replace('#', '')
+        first = ret.split('\\n', 1)[0].replace('#', '')
         return first, ret
 
 
@@ -43,7 +43,7 @@ setup(
         'test': tests_require,
     },
     install_requires=('octodns>=0.9.17', 'requests>=2.27.0'),
-    license='MIT',
+    license='GPL-3.0',
     long_description=long_description,
     long_description_content_type='text/markdown',
     name='octodns-cloudns',
