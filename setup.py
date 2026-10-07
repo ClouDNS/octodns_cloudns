@@ -6,7 +6,7 @@ from setuptools import find_packages, setup
 def descriptions():
     with open('README.md') as fh:
         ret = fh.read()
-        first = ret.split('\\n', 1)[0].replace('#', '')
+        first = ret.split('\n', 1)[0].replace('#', '')
         return first, ret
 
 
