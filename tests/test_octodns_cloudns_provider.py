@@ -1,5 +1,6 @@
 import os
 import unittest
+from uuid import uuid4
 from unittest.mock import Mock, call, patch, MagicMock
 from octodns.zone import Zone
 from octodns.record import Record, Update
@@ -19,17 +20,20 @@ class TestClouDNSClient(unittest.TestCase):
     def setUp(self):
         self.client = ClouDNSClient('456', '123456', 'test')
 
-    @patch('requests.Session.get')
-    def test_raw_request_success(self, mock_get):
+    @patch('requests.Session.post')
+    def test_raw_request_success(self, mock_post):
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.text = 'Success response'
-        mock_get.return_value = mock_response
+        mock_post.return_value = mock_response
 
         response = self.client._raw_request('dns/get-zone-info', 'domain-name=example.com')
 
         self.assertEqual(response.text, 'Success response')
-        mock_get.assert_called_with('https://api.cloudns.net/dns/get-zone-info.json?auth-id=456&auth-password=123456&domain-name=example.com')
+        mock_post.assert_called_with(
+            'https://api.cloudns.net/dns/get-zone-info.json',
+            data={'auth-id': '456', 'auth-password': '123456',
+                  'domain-name': 'example.com'}, timeout=(10, 30))
 
 class TestClouDNSProvider(unittest.TestCase):
     def setUp(self):
@@ -95,6 +99,7 @@ class TestClouDNSProvider(unittest.TestCase):
         actual_argument = mock_populate.call_args[0][0]
         self.assertEqual(actual_argument, expected_argument)
     
+    @unittest.skipIf('TLSA' not in Record._CLASSES, 'octoDNS version lacks TLSA')
     def test_record_creation(self):
         zone_name = 'example.com.'
         zone = Zone(zone_name, [])
@@ -461,43 +466,71 @@ class TestClouDNSProviderErrorHandling(unittest.TestCase):
 
 
 @unittest.skipUnless(
-    os.environ.get('CLOUDNS_INTEGRATION_TEST'),
-    'Set CLOUDNS_INTEGRATION_TEST=1 to run integration tests'
+    os.environ.get('CLOUDNS_INTEGRATION_TEST') == '1'
+    and bool(os.environ.get('CLOUDNS_AUTH_PASSWORD'))
+    and bool(os.environ.get('CLOUDNS_TEST_DOMAIN'))
+    and bool(os.environ.get('CLOUDNS_SUB_AUTH_ID') or os.environ.get('CLOUDNS_AUTH_ID')),
+    'Integration tests require explicit opt-in, credentials and CLOUDNS_TEST_DOMAIN'
 )
 class TestClouDNSIntegration(unittest.TestCase):
     """Integration tests against the real ClouDNS API.
 
-    Run with:
-        CLOUDNS_INTEGRATION_TEST=1 CLOUDNS_SUB_AUTH_ID=85055 CLOUDNS_AUTH_PASSWORD='fkc6XKR0zer*nva_vtg' python -m pytest tests/ -k Integration -v
+    Configure CLOUDNS_INTEGRATION_TEST=1, CLOUDNS_AUTH_PASSWORD,
+    CLOUDNS_TEST_DOMAIN and CLOUDNS_SUB_AUTH_ID or CLOUDNS_AUTH_ID.
+    Use an isolated test zone only. CI runs with --disable-network.
     """
 
     def setUp(self):
-        auth_id = os.environ.get('CLOUDNS_SUB_AUTH_ID', '85055')
-        auth_password = os.environ.get('CLOUDNS_AUTH_PASSWORD', '')
-        self.client = ClouDNSClient(auth_id, auth_password, 'integration-test', sub_auth=True)
-        self.domain = 'argl.net'
+        sub_auth_id = os.environ.get('CLOUDNS_SUB_AUTH_ID')
+        auth_id = sub_auth_id or os.environ['CLOUDNS_AUTH_ID']
+        self.client = ClouDNSClient(
+            auth_id, os.environ['CLOUDNS_AUTH_PASSWORD'], 'integration-test',
+            sub_auth=bool(sub_auth_id))
+        self.domain = os.environ['CLOUDNS_TEST_DOMAIN'].rstrip('.')
+        self.label = 'octodns-it-' + uuid4().hex
 
     def test_invalid_ttl_raises(self):
         """Creating a record with TTL=120 must raise, not silently succeed."""
-        with self.assertRaises(ClouDNSClientException) as ctx:
-            self.client.record_create(
-                self.domain, 'A', 'test-invalid-ttl',
+        try:
+            result = self.client.record_create(
+                self.domain, 'A', self.label,
                 ['1.2.3.4'], rrset_ttl=120
             )
-        self.assertIn('Invalid TTL', str(ctx.exception))
+        except ClouDNSClientException as error:
+            self.assertIn('Invalid TTL', str(error))
+        else:
+            self.client.record_delete(self.domain, result['data']['id'])
+            self.fail('This account accepts TTL 120; use a different invalid TTL')
 
     def test_valid_record_create_and_delete(self):
         """Creating a record with a valid TTL succeeds and can be cleaned up."""
         result = self.client.record_create(
-            self.domain, 'A', 'test-valid-record',
+            self.domain, 'A', self.label,
             ['1.2.3.4'], rrset_ttl=3600
         )
-        self.assertEqual(result['status'], 'Success')
         record_id = result['data']['id']
+        try:
+            self.assertEqual(result['status'], 'Success')
+        finally:
+            self.client.record_delete(self.domain, record_id)
 
-        # Clean up
-        delete_result = self.client.record_delete(self.domain, record_id)
-        self.assertEqual(delete_result['status'], 'Success')
+    def test_ttl_mod_preserves_id_value_and_metadata(self):
+        result = self.client.record_create(
+            self.domain, 'A', self.label, ['192.0.2.1'], rrset_ttl=300)
+        record_id = str(result['data']['id'])
+        try:
+            before = self.client.zone_records(self.domain)[record_id]
+            self.client.record_mod(
+                self.domain, record_id, self.label, 3600,
+                ClouDNSClient.fields_from_row(before))
+            after = self.client.zone_records(self.domain)[record_id]
+            self.assertEqual(after['record'], before['record'])
+            self.assertEqual(after['host'], before['host'])
+            self.assertEqual(str(after['ttl']), '3600')
+            for field in ('id', 'type', 'status', 'failover', 'notes'):
+                self.assertEqual(after.get(field), before.get(field))
+        finally:
+            self.client.record_delete(self.domain, record_id)
 
     def test_missing_domain_raises(self):
         """Querying a non-existent domain raises ClouDNSClientException."""
