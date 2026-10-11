@@ -32,8 +32,9 @@
   An explicit failure does not make that legacy path fully convergent.
 - Existing per-client rate limiting remains unchanged; shared-IP limiting belongs
   to 0.1.0. There is no transactional rollback after a partial API failure.
-- Before publication: run the gated live TTL read-back test and verify SSHFP/LOC
-  write-field names against a dedicated paid test zone. Fixtures in unit tests
-  model the API contract; they are not claimed to be captured live responses.
+- Live TTL read-back passed for all 16 supported static record types on an
+  isolated test zone on 2026-10-11, including SSHFP/LOC write-field names. See
+  `docs/live-validation-0.0.18.md` for scope and limitations. Unit fixtures remain
+  synthetic; they are not claimed to be captured live responses.
 - Removing a public credential does not revoke it. Confirm rotation/revocation
   with its owner separately (issue #23).
