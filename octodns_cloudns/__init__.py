@@ -11,7 +11,7 @@ from urllib.parse import quote, quote_plus
 from types import SimpleNamespace
 logger = logging.getLogger(__name__)
 
-__version__ = __VERSION__ = '0.0.17'
+__version__ = __VERSION__ = '0.0.18'
 
 class ClouDNSClientException(ProviderException):
     pass

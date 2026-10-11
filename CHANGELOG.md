@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.0.18 — Unreleased
+## 0.0.18 — 2026-10-11
 
 - Apply TTL-only changes with `dns/mod-record` for every API row of the managed
   name/type, including structured record types. Preserve IDs and raw value fields;
