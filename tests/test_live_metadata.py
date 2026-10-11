@@ -87,7 +87,8 @@ def test_ttl_update_preserves_metadata(record_type, inactive, notes, failover):
         assert str(after['ttl']) == '3600'
         assert {k: v for k, v in before.items() if k != 'ttl'} == {
             k: v for k, v in after.items() if k != 'ttl'
-        }
+        }, {k: (before.get(k), after.get(k)) for k in set(before) | set(after)
+            if k != 'ttl' and before.get(k) != after.get(k)}
         assert desired.data == desired_before
         if notes:
             assert request('dns/get-record-note') == note_before
@@ -96,7 +97,9 @@ def test_ttl_update_preserves_metadata(record_type, inactive, notes, failover):
             # Monitoring may update its instantaneous check outcome during the test.
             assert {k: v for k, v in settings_before.items() if k != 'status'} == {
                 k: v for k, v in settings_after.items() if k != 'status'
-            }
+            }, {k: (settings_before.get(k), settings_after.get(k))
+                for k in set(settings_before) | set(settings_after)
+                if k != 'status' and settings_before.get(k) != settings_after.get(k)}
     finally:
         if record_id is not None:
             try:

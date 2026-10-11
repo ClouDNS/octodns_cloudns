@@ -46,6 +46,51 @@ Offline verification on the same implementation: 86 tests passed and the four
 integration tests were skipped when not explicitly enabled. The five existing
 GitHub CI matrix jobs were green before this documentation-only update.
 
+## Metadata follow-up
+
+All fourteen distinct provider-path combinations below achieved a successful
+result across the initial run and targeted reruns on 2026-10-11:
+
+| Inactive | Note | Failover | A | AAAA |
+| --- | --- | --- | --- | --- |
+| No | No | Yes | Passed | Passed |
+| No | Yes | No | Passed | Passed |
+| No | Yes | Yes | Passed | Passed |
+| Yes | No | No | Passed | Passed |
+| Yes | No | Yes | Passed on rerun | Passed |
+| Yes | Yes | No | Passed | Passed |
+| Yes | Yes | Yes | Passed | Passed |
+
+Each test used `ClouDNSProvider._apply_update()` to change TTL 300 to 3600.
+All returned record fields other than TTL had to remain equal. Notes included
+Cyrillic, special characters and a newline and were also compared through the
+separate get-record-note endpoint. Failover configuration and monitoring state
+were compared through failover-settings; only the instantaneous monitoring
+outcome was excluded. No notifications or automatic DNS event handlers were
+enabled.
+
+The API returns record notes under the singular `note` key. Record listing now
+explicitly requests `include-notes=1`, and the value-update guard recognizes both
+`note` and the legacy synthetic `notes` spelling.
+
+Early failover setup attempts returned a quota limit of 0. Later activation
+succeeded, allowing the complete combination matrix to be exercised.
+
+One initial provider test for an inactive A record with failover failed. Its
+original diagnostic was not retained when that run was interrupted, so the cause
+remains unknown. The same case passed two independent fresh-record reruns with
+no reproduced metadata change. The final targeted run, covering that case and
+the four unfinished combinations, passed all five tests and saved a JUnit report.
+The initial matrix run therefore had an unclassified failure; this report records
+the successful outcomes across runs and retains that uncertainty for review.
+
+Cleanup restored the four original rows after the API probe sweep and after each
+completed provider test. One temporary row/check from the interrupted run was
+explicitly cleaned up before rerunning. No temporary records or checks remain.
+
+Offline verification of the final implementation: 140 passed, 18 opted-in live
+checks skipped. All five CI matrix configurations passed.
+
 ## Scope limits
 
 The original type sweep used active, static records with default metadata.
