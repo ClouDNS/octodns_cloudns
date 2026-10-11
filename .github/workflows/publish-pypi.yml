@@ -1,0 +1,48 @@
+name: Publish validated release to PyPI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-pypi
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install publishing tools
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pypi-env"
+          "$RUNNER_TEMP/pypi-env/bin/python" -m pip install 'twine>=6,<8'
+
+      - name: Download and verify approved release packages
+        run: |
+          python3 scripts/publish_release.py prepare "$RUNNER_TEMP/release-packages"
+          "$RUNNER_TEMP/pypi-env/bin/python" -m twine check "$RUNNER_TEMP/release-packages"/*.whl "$RUNNER_TEMP/release-packages"/*.tar.gz
+
+      - name: Publish missing packages to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+          TWINE_NON_INTERACTIVE: '1'
+        run: |
+          "$RUNNER_TEMP/pypi-env/bin/python" scripts/publish_release.py upload "$RUNNER_TEMP/release-packages"
+
+      - name: Verify PyPI package hashes
+        run: python3 scripts/publish_release.py verify "$RUNNER_TEMP/release-packages"
+
+      - name: Install published package and verify version
+        run: |
+          "$RUNNER_TEMP/pypi-env/bin/python" -m pip install --no-cache-dir --index-url https://pypi.org/simple 'octodns-cloudns==0.0.18' 'octodns==1.22.0'
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/pypi-env/bin/python" -c 'import octodns_cloudns; from importlib.metadata import version; assert octodns_cloudns.__version__ == version("octodns-cloudns") == "0.0.18"; print("Installed PyPI version 0.0.18 verified")'
