@@ -596,11 +596,15 @@ class ClouDNSProvider(BaseProvider):
             self._apply_create(change)
             return
 
+        # TXT values are escaped in octoDNS but returned unescaped by the API.
+        if existing._type == 'TXT':
+            to_delete = {value.replace(r'\;', ';') for value in to_delete}
+
         for record in records:
             if record['record'] in to_delete:
                 self._client.record_delete(zone.name[:-1], record['id'])
 
-        stripped_change = Change(existing=existing,new=change.new)
+        stripped_change = Change(existing=existing,new=change.new.copy())
         stripped_change.new.values = to_create
         self._apply_create(stripped_change)
 
