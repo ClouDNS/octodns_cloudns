@@ -159,7 +159,8 @@ class ClouDNSClient(object):
         return self._request('dns/get-zone-info', {'domain-name': domain_name})
 
     def zone_records(self, domain_name):
-        return self._request('dns/records', {'domain-name': domain_name})
+        return self._request('dns/records', {
+            'domain-name': domain_name, 'include-notes': 1})
 
     # API write field, octoDNS value attribute, API listing field aliases.
     # The aliases follow ClouDNS's SDK write names and dns/records read names.
@@ -604,16 +605,18 @@ class ClouDNSProvider(BaseProvider):
         return old == new and change.existing.ttl != change.new.ttl
 
     @staticmethod
-    def _validate_mod_row(row, existing):
-        # Preserve these features until live API probes establish mod semantics.
-        if (str(row.get('status', 1)) != '1'
-                or str(row.get('failover', 0)) != '0'
-                or row.get('notes')
-                or any(row.get(key) for key in (
-                    'geodns-location', 'geodns-code', 'geodns-location-code'))):
+    def _validate_mod_row(row, existing, ttl_only=False):
+        # Live TTL probes verify preservation of status, notes and failover.
+        # Value changes retain their conservative metadata checks.
+        metadata = (str(row.get('status', 1)) != '1'
+                    or str(row.get('failover', 0)) != '0'
+                    or row.get('notes') or row.get('note'))
+        geo = any(row.get(key) for key in (
+            'geodns-location', 'geodns-code', 'geodns-location-code'))
+        if geo or (metadata and not ttl_only):
             raise ProviderException(
-                'TTL update requires an unmonitored, active, non-GeoDNS '
-                'record without notes: {} {}'.format(existing.name, existing._type))
+                'Update metadata is not supported for this operation: {} {}'.format(
+                    existing.name, existing._type))
 
     def _ttl_operations(self, change):
         existing = change.existing
@@ -623,9 +626,8 @@ class ClouDNSProvider(BaseProvider):
         for record_id, row in self.zone_records(existing.zone).items():
             if row['host'] != existing.name or row['type'] != existing._type:
                 continue
-            # mod-record preservation of these settings requires live probes.
-            # Reject the whole rrset before issuing its first write.
-            self._validate_mod_row(row, existing)
+            # Reject GeoDNS rows before the first write.
+            self._validate_mod_row(row, existing, ttl_only=True)
             fields = ClouDNSClient.fields_from_row(row)
             if int(row['ttl']) != change.new.ttl:
                 operations.append((row, row.get('id', record_id), fields))

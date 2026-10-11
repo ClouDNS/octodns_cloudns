@@ -13,7 +13,8 @@
   URL logging, the unused Bearer header, response-body logging and import-time
   logging configuration. Do not retry ambiguous writes automatically.
 - Propagate API read errors except the explicit missing-domain response. Treat
-  an empty list as an existing empty zone.
+  an empty list as an existing empty zone. Explicitly request record notes with
+  `include-notes=1`, and recognize the live API response field `note`.
 - Remove the exposed credential example and fixed account/domain defaults from
   integration tests. Integration requires explicit opt-in and environment values;
   CI unit tests have network access disabled.
@@ -24,9 +25,10 @@
 
 - A change affecting both TTL and values is rejected before plan writes. Apply
   value changes and TTL changes in separate runs until 0.1.0.
-- Rows with notes, failover, inactive status or GeoDNS location are rejected by
-  the new modification path. This avoids assuming undocumented preservation of
-  those settings. GeoDNS is not repaired by this release.
+- TTL-only changes preserve inactive status, record notes and failover settings.
+  GeoDNS rows remain rejected. Single-value changes still reject inactive, noted
+  or monitored rows because metadata preservation during value changes was not
+  tested. GeoDNS is not repaired by this release.
 - The legacy multi-value update/delete path still has known matching and removal
   defects, notably CAA/LOC/TLSA and structured values; these remain tracked in #25.
   An explicit failure does not make that legacy path fully convergent.

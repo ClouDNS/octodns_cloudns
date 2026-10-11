@@ -197,9 +197,6 @@ def test_only_rows_with_different_ttl_are_modified():
 @pytest.mark.parametrize(
     'problem',
     [
-        {'status': 0},
-        {'failover': '1'},
-        {'notes': 'operator note'},
         {'geodns-location': 'US'},
         {'geodns-code': 'US'},
         {'geodns-location-code': 'US'},
@@ -209,7 +206,7 @@ def test_unverified_metadata_is_rejected_before_any_write(problem):
     provider, change, rows = provider_and_change(count=2)
     rows['2'].update(problem)
     plan = Plan(change.existing.zone, change.new.zone, [change], True)
-    with pytest.raises(ProviderException, match='TTL update requires'):
+    with pytest.raises(ProviderException, match='Update metadata is not supported'):
         provider._apply(plan)
     assert provider._client.mock_calls == []
     assert provider._zone_records == {}
@@ -446,3 +443,65 @@ def test_round_trip_apply_converges_and_dry_run_does_not_write(requests_mock):
         'add-record' in r.url or 'delete-record' in r.url
         for r in requests_mock.request_history
     )
+
+
+@pytest.mark.parametrize('record_type', sorted(ROWS))
+@pytest.mark.parametrize('metadata', [
+    {'status': 0},
+    {'note': 'TTL probe: бележка & + % # ;\nsecond line'},
+    {'status': 0, 'note': 'TTL probe: бележка & + % # ;\nsecond line'},
+])
+def test_ttl_updates_preserve_verified_metadata(record_type, metadata):
+    provider, change, rows = provider_and_change(record_type, count=2)
+    for row in rows.values():
+        row.update(metadata)
+    before = deepcopy(rows)
+    provider._apply_update(change)
+    assert provider._client.record_mod.call_count == 2
+    for record_id, row in rows.items():
+        assert row['ttl'] == '3600'
+        assert {k: v for k, v in row.items() if k != 'ttl'} == {
+            k: v for k, v in before[record_id].items() if k != 'ttl'
+        }
+    for call in provider._client.record_mod.call_args_list:
+        fields = call.args[4]
+        assert not any(key in fields for key in ('notes', 'note', 'status', 'failover'))
+
+
+def test_record_listing_explicitly_requests_notes(requests_mock):
+    requests_mock.post('https://api.cloudns.net/dns/records.json', json={})
+    client = ClouDNSClient('id', 'password', 'notes-test')
+    assert client.zone_records('example.com') == {}
+    assert parse_qs(requests_mock.last_request.text)['include-notes'] == ['1']
+
+
+@pytest.mark.parametrize('record_type', ['A', 'AAAA'])
+@pytest.mark.parametrize('metadata', [
+    {'failover': '1'},
+    {'failover': '1', 'status': 0, 'note': 'operator note'},
+])
+def test_ttl_update_preserves_failover_attachment(record_type, metadata):
+    provider, change, rows = provider_and_change(record_type, count=2)
+    rows['2'].update(metadata)
+    before = deepcopy(rows)
+    provider._apply_update(change)
+    assert provider._client.record_mod.call_count == 2
+    for record_id, row in rows.items():
+        assert {k: v for k, v in row.items() if k != 'ttl'} == {
+            k: v for k, v in before[record_id].items() if k != 'ttl'
+        }
+
+
+@pytest.mark.parametrize('metadata', [
+    {'status': 0}, {'note': 'operator note'}, {'notes': 'legacy note'},
+    {'failover': '1'},
+])
+def test_single_value_changes_keep_unverified_metadata_guard(metadata):
+    provider, change, rows = provider_and_change('CNAME', count=1)
+    rows['1'].update(metadata)
+    new = Record.new(change.new.zone, change.new.name, {
+        'type': 'CNAME', 'ttl': 300, 'value': 'other.example.net.',
+    })
+    with pytest.raises(ProviderException, match='Update metadata is not supported'):
+        provider._apply_update(Update(change.existing, new))
+    assert provider._client.mock_calls == []

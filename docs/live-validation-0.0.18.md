@@ -48,9 +48,11 @@ GitHub CI matrix jobs were green before this documentation-only update.
 
 ## Scope limits
 
-These were active, static records with default metadata. Notes, disabled records,
-failover and GeoDNS preservation were not tested; the new modification path
-continues to reject those rows before writing.
+The original type sweep used active, static records with default metadata.
+Additional metadata probes verified inactive status, notes and failover
+preservation during TTL-only modifications. GeoDNS was not tested and remains
+rejected. Single-value changes retain their metadata guards; TTL-only probes do
+not establish preservation semantics for changing values.
 
 NS was tested at a temporary child name, leaving the zone's root NS records
 untouched. ALIAS was also tested at a temporary child name, which ClouDNS accepts;
@@ -62,3 +64,26 @@ The existing unit fixtures are synthetic. This report records live assertions,
 not captured production data or a claim to repair the legacy value reconciliation
 path. Combined TTL/value changes and the limitations documented in CHANGELOG.md
 remain unchanged.
+
+## Reproducing metadata checks
+
+`tests/test_live_metadata.py` provides 14 opt-in checks: all seven non-empty
+combinations of inactive status, notes and failover for both A and AAAA records.
+The test account needs an isolated master zone, record-note access and at least
+one available failover check. It uses Ping monitoring with both event handlers
+set to monitoring-only, a one-hour check period and notifications disabled.
+
+Set `CLOUDNS_METADATA_TEST=1`, `CLOUDNS_TEST_DOMAIN`, `CLOUDNS_AUTH_PASSWORD` and
+`CLOUDNS_SUB_AUTH_ID` (or `CLOUDNS_AUTH_ID`) in the process environment, then run:
+
+```sh
+python -m pytest tests/test_live_metadata.py -q
+```
+
+Do not pass `--disable-network` to explicitly enabled live checks. Ordinary CI
+uses that flag and skips all integration checks. The live test only modifies
+uniquely named rows it creates, deactivates any temporary failover check before
+record deletion, and asserts that the complete initial row snapshot is restored.
+The instantaneous monitoring `status` is excluded from the settings comparison;
+all returned configuration fields, including monitoring `state`, must match.
+GeoDNS and automatic failover event execution are outside these tests.
