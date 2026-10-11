@@ -91,12 +91,80 @@ explicitly cleaned up before rerunning. No temporary records or checks remain.
 Offline verification of the final implementation: 140 passed, 18 opted-in live
 checks skipped. All five CI matrix configurations passed.
 
+## GeoDNS follow-up
+
+On 2026-10-11, a separate dedicated sub-user was used with a user-provided
+GeoDNS-capable zone containing 30 existing records. Only collision-checked UUID
+names were created or modified; no existing record IDs were eligible for writes.
+The final run of `tests/test_live_geo.py` passed all six parameterized cases,
+covering 24 temporary records across DEFAULT, EUR, BG and US-1 (default,
+continent, country and subregion).
+
+Records were created using `geodns-code`. Two modification paths were probed:
+TTL 300 to 3600 without a location parameter, then TTL back to 300 with the
+original numeric `geodns-location` explicitly supplied. Both TTLs were checked
+against the account's available TTL list before creation.
+
+| Type | Regional rows when location is omitted | Explicit location, all four rows |
+| --- | --- | --- |
+| A | All three move to DEFAULT | All non-TTL fields preserved |
+| AAAA | All three move to DEFAULT | All non-TTL fields preserved |
+| ALIAS | All three move to DEFAULT | All non-TTL fields preserved |
+| CNAME | All three rejected; rows unchanged | All non-TTL fields preserved |
+| SRV | All three move to DEFAULT | All non-TTL fields preserved |
+| NAPTR | All three move to DEFAULT | All non-TTL fields preserved |
+
+The DEFAULT row accepted the location-omitting modification for every type.
+The three CNAME regional writes returned `There is another record for the same
+host.` Successful location-omitting writes preserved IDs and value fields, but
+changed the location ID, name and code to DEFAULT. The explicit-location path
+preserved every returned non-TTL field, including structured SRV/NAPTR values.
+
+For each type, a TTL-only provider update against cached test rows was rejected
+before any write; read-back confirmed the rows were unchanged by that attempt.
+Six additional offline regressions verify that DEFAULT and regional GeoDNS rows
+block an entire plan before an unrelated Create can run.
+
+These results justify retaining the GeoDNS guard in 0.0.18. Passing the original
+location explicitly is necessary for safe API modification. It does not repair
+the provider's existing model: offline reproduction confirmed that populate
+flattens different locations into a static RRset, and the GeoDNS create serializer
+uses default values instead of location-specific values. Location mapping and
+complete read/plan/apply convergence belong to 0.1.0.
+
+An initial probe selected unsupported TTL 7200 and was corrected. A subsequent
+run encountered API read timeouts, including an ambiguous deletion response;
+four remaining temporary A rows were reconciled by read-back and removed before
+the final run. No automatic retry of an ambiguous write was used. The test now
+checks allowed TTLs, uses a 60-second read timeout only for live probes, recovers
+ambiguous creates by their collision-checked UUID names, and reports baseline
+differences by ID rather than exposing unrelated zone contents.
+
+The final six-case run passed in 753 seconds and saved a JUnit report. After each
+case, all 30 original rows matched the initial snapshot exactly and no temporary
+rows remained. This is API control-plane validation, not geographically distributed
+DNS response testing or a claim that GeoDNS synchronization is implemented.
+
+To reproduce, set `CLOUDNS_GEO_TEST=1`, `CLOUDNS_GEO_TEST_DOMAIN`,
+`CLOUDNS_SUB_AUTH_ID` and `CLOUDNS_AUTH_PASSWORD`, then run:
+
+```sh
+python -m pytest tests/test_live_geo.py -x -vv -s --tb=short
+```
+
+The probe intentionally demonstrates location-omission behavior on its own rows
+before restoring their locations and deleting them. ALIAS uses a child name and
+lenient octoDNS conversion to avoid any change to root records.
+
+Latest offline verification: 146 passed, 24 opted-in live checks skipped.
+
 ## Scope limits
 
 The original type sweep used active, static records with default metadata.
 Additional metadata probes verified inactive status, notes and failover
-preservation during TTL-only modifications. GeoDNS was not tested and remains
-rejected. Single-value changes retain their metadata guards; TTL-only probes do
+preservation during TTL-only modifications. GeoDNS API behavior was tested as
+described above; provider updates remain rejected. Single-value changes retain
+their metadata guards; TTL-only probes do
 not establish preservation semantics for changing values.
 
 NS was tested at a temporary child name, leaving the zone's root NS records
@@ -131,4 +199,5 @@ uniquely named rows it creates, deactivates any temporary failover check before
 record deletion, and asserts that the complete initial row snapshot is restored.
 The instantaneous monitoring `status` is excluded from the settings comparison;
 all returned configuration fields, including monitoring `state`, must match.
-GeoDNS and automatic failover event execution are outside these tests.
+GeoDNS is exercised separately by `tests/test_live_geo.py`. Automatic failover
+event execution is outside these tests.

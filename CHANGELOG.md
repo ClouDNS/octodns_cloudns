@@ -29,6 +29,9 @@
   GeoDNS rows remain rejected. Single-value changes still reject inactive, noted
   or monitored rows because metadata preservation during value changes was not
   tested. GeoDNS is not repaired by this release.
+  Live GeoDNS probes confirmed that omitting the location from `mod-record`
+  resets regional rows to DEFAULT or rejects CNAME writes. Explicit locations
+  preserve fields, but the existing GeoDNS read/create mapping still needs repair.
 - The legacy multi-value update/delete path still has known matching and removal
   defects, notably CAA/LOC/TLSA and structured values; these remain tracked in #25.
   An explicit failure does not make that legacy path fully convergent.

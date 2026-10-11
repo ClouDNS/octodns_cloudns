@@ -212,6 +212,19 @@ def test_unverified_metadata_is_rejected_before_any_write(problem):
     assert provider._zone_records == {}
 
 
+@pytest.mark.parametrize('record_type', ['A', 'AAAA', 'ALIAS', 'CNAME', 'SRV', 'NAPTR'])
+def test_geo_default_and_regional_rows_block_entire_plan(record_type):
+    provider, change, rows = provider_and_change(record_type, count=2)
+    rows['1'].update({'geodns-location': '1', 'geodns-location-code': 'DEFAULT'})
+    rows['2'].update({'geodns-location': '30', 'geodns-location-code': 'BG'})
+    create = Create(Record.new(change.new.zone, 'other', {
+        'type': 'A', 'ttl': 300, 'value': '192.0.2.10'}))
+    with pytest.raises(ProviderException, match='Update metadata is not supported'):
+        provider._apply(Plan(change.existing.zone, change.new.zone, [create, change], True))
+    assert provider._client.mock_calls == []
+    assert provider._zone_records == {}
+
+
 def test_incomplete_row_blocks_entire_rrset():
     provider, change, rows = provider_and_change('CAA', count=2)
     del rows['2']['caa_value']
