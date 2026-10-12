@@ -223,6 +223,56 @@ class TestClouDNSProvider(unittest.TestCase):
         self.assertEqual(str(geo_a_record.data['value']), "192.168.1.1")
         self.assertEqual(str(geo_a_record.data['geo']), "{'AF': ['2.2.3.4', '2.2.3.5'], 'AS-JP': ['3.2.3.4', '3.2.3.5'], 'NA-US-CA': ['4.2.3.4', '4.2.3.5']}")
 
+    def test_apply_update_replaces_escaped_txt_value(self):
+        zone = Zone('example.com.', [])
+        old = 'v=DKIM1; k=rsa; p=old-key;'
+        new = 'v=DKIM1; t=s; h=sha256; p=new-key;'
+        existing = Record.new(zone, 'selector._domainkey', {
+            'type': 'TXT', 'ttl': 3600, 'value': old.replace(';', r'\;'),
+        })
+        desired = Record.new(zone, 'selector._domainkey', {
+            'type': 'TXT', 'ttl': 3600, 'value': new.replace(';', r'\;'),
+        })
+        self.provider._records_are_same = Mock(return_value=[{
+            'id': '101', 'record': old,
+        }])
+        self.provider._client = Mock()
+
+        self.provider._apply_update(Update(existing, desired))
+
+        self.provider._client.record_delete.assert_called_once_with(
+            'example.com', '101',
+        )
+        self.provider._client.record_create.assert_called_once()
+        params = self.provider._client.record_create.call_args[1]
+        self.assertEqual(params['rrset_values'], [new.replace(';', r'\;')])
+
+    def test_apply_update_removes_obsolete_txt_and_preserves_desired_record(self):
+        zone = Zone('example.com.', [])
+        old = 'v=DKIM1; k=rsa; p=key;'
+        retained = 'v=DKIM1; t=s; h=sha256; p=key;'
+        existing = Record.new(zone, 'selector._domainkey', {
+            'type': 'TXT', 'ttl': 3600,
+            'values': [value.replace(';', r'\;') for value in [old, retained]],
+        })
+        desired = Record.new(zone, 'selector._domainkey', {
+            'type': 'TXT', 'ttl': 3600, 'value': retained.replace(';', r'\;'),
+        })
+        desired_data = desired.data.copy()
+        self.provider._records_are_same = Mock(return_value=[
+            {'id': '101', 'record': old},
+            {'id': '102', 'record': retained},
+        ])
+        self.provider._client = Mock()
+
+        self.provider._apply_update(Update(existing, desired))
+
+        self.provider._client.record_delete.assert_called_once_with(
+            'example.com', '101',
+        )
+        self.provider._client.record_create.assert_not_called()
+        self.assertEqual(desired.data, desired_data)
+
     def test_apply_update_replaces_unhashable_caa_values(self):
         zone = Zone('example.com.', [])
         existing = Record.new(
