@@ -683,6 +683,10 @@ class ClouDNSProvider(BaseProvider):
             self._apply_create(change)
             return
 
+        # octoDNS escapes TXT semicolons; API rows contain the raw values.
+        if existing._type == 'TXT':
+            to_delete = {value.replace(r'\;', ';') for value in to_delete}
+
         operations = 0
         for record in records:
             if record['record'] in to_delete:
