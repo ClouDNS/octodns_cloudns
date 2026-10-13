@@ -6,12 +6,13 @@ import logging
 import time
 import threading
 from octodns.provider.base import BaseProvider
-from octodns.record import Record, Change
+from octodns.record import Record, Change, Update
+from .ds import DsCodec, operations as ds_operations
 from urllib.parse import quote, quote_plus
 from types import SimpleNamespace
 logger = logging.getLogger(__name__)
 
-__version__ = __VERSION__ = '0.0.18'
+__version__ = __VERSION__ = '0.1.0.dev0'
 
 class ClouDNSClientException(ProviderException):
     pass
@@ -203,6 +204,8 @@ class ClouDNSClient(object):
 
     @classmethod
     def fields_from_row(cls, row):
+        if row['type'] == 'DS':
+            return DsCodec.fields(DsCodec.from_row(row))
         fields = {}
         mapping = cls._VALUE_FIELDS.get(row['type'],
                                        [('record', None, ('record',))])
@@ -219,6 +222,8 @@ class ClouDNSClient(object):
 
     @classmethod
     def fields_from_value(cls, rrset_type, value):
+        if rrset_type == 'DS':
+            return DsCodec.fields(value)
         if rrset_type in cls._VALUE_FIELDS:
             fields = {field: getattr(value, attr)
                       for field, attr, _ in cls._VALUE_FIELDS[rrset_type]}
@@ -268,6 +273,7 @@ class ClouDNSProvider(BaseProvider):
             "CAA",
             "CNAME",
             "DNAME",
+            "DS",
             "MX",
             "NS",
             "PTR",
@@ -312,6 +318,41 @@ class ClouDNSProvider(BaseProvider):
     _data_for_AAAA = _data_for_multiple
     _data_for_SPF = _data_for_multiple
     _data_for_NS = _data_for_multiple
+
+    def _data_for_DS(self, _type, records):
+        for row in records:
+            DsCodec.validate_row(row)
+        return {"ttl": int(records[0]['ttl']), "type": _type,
+                "values": [DsCodec.from_row(row) for row in records]}
+
+    def _ds_operations(self, change):
+        record = change.new or change.existing
+        return ds_operations(self.zone_records(record.zone), record,
+                             deleting=change.new is None)
+
+    def _apply_ds(self, change):
+        record = change.new or change.existing
+        for action, record_id, fields in self._ds_operations(change):
+            if action == 'add':
+                self._client.record_create(record.zone.name[:-1], 'DS',
+                    record.name, [DsCodec.from_row(fields)], record.ttl)
+            elif action == 'mod':
+                # Omit status/note/failover: mod-record leaves them intact.
+                self._client.record_mod(record.zone.name[:-1], record_id,
+                                        record.name, record.ttl, fields)
+            else:
+                self._client.record_delete(record.zone.name[:-1], record_id)
+
+    def _extra_changes(self, existing, desired, changes):
+        extra = super()._extra_changes(existing, desired, changes)
+        changed = {(c.record.name, c.record._type) for c in changes}
+        for record in desired.records:
+            if record._type != 'DS' or (record.name, 'DS') in changed:
+                continue
+            old = next(iter(existing.get(record.name, 'DS')), None)
+            if old is not None and self._ds_operations(Update(old, record)):
+                extra.append(Update(old, record))
+        return extra
 
     def zone(self, zone_name):
         return self._client.zone(zone_name)
@@ -424,6 +465,8 @@ class ClouDNSProvider(BaseProvider):
             if _type not in self.SUPPORTS:
                 continue
 
+            if _type == 'DS' and not DsCodec.active(record):
+                continue
             values[record["host"]][_type].append(record)
         before = len(records_data.items())
         for name, types in values.items():
@@ -583,6 +626,8 @@ class ClouDNSProvider(BaseProvider):
         }
 
     def _apply_create(self, change):
+        if change.record._type == 'DS':
+            return self._apply_ds(change)
         new = change.new      
         if hasattr(new, 'values'):
             for value in new.values:
@@ -638,6 +683,8 @@ class ClouDNSProvider(BaseProvider):
         return operations
 
     def _apply_update(self, change):
+        if change.record._type == 'DS':
+            return self._apply_ds(change)
         existing = change.existing
         zone = existing.zone
         if self._is_ttl_only(change):
@@ -822,6 +869,8 @@ class ClouDNSProvider(BaseProvider):
         return records
 
     def _apply_delete(self, change):
+        if change.record._type == 'DS':
+            return self._apply_ds(change)
         existing = change.existing
         zone = existing.zone
         record_ids = self.records_are_same(existing)
@@ -838,7 +887,9 @@ class ClouDNSProvider(BaseProvider):
 
         try:
             for change in changes:
-                if change.__class__.__name__ == 'Update':
+                if change.record._type == 'DS':
+                    self._ds_operations(change)
+                elif change.__class__.__name__ == 'Update':
                     if self._is_ttl_only(change):
                         self._ttl_operations(change)
                     elif change.existing.ttl != change.new.ttl:
