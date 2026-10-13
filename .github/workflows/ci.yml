@@ -12,16 +12,12 @@ jobs:
     strategy:
       matrix:
         include:
-          - python-version: '3.8'
-            octodns-version: '0.9.17'
-          - python-version: '3.8'
-            octodns-version: '1.10.0'
-          - python-version: '3.10'
-            octodns-version: '1.3.0'
           - python-version: '3.10'
             octodns-version: '1.22.0'
           - python-version: '3.12'
             octodns-version: '1.22.0'
+          - python-version: '3.14'
+            octodns-version: 'latest'
 
     steps:
       - uses: actions/checkout@v4
@@ -34,7 +30,11 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[test]' 'octodns==${{ matrix.octodns-version }}'
+          if [ '${{ matrix.octodns-version }}' = latest ]; then
+            pip install -e '.[test]' --upgrade octodns
+          else
+            pip install -e '.[test]' 'octodns==${{ matrix.octodns-version }}'
+          fi
 
       - name: Run tests
         run: pytest tests/ --disable-network -v

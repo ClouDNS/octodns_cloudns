@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0 — unreleased
+
+- Add DS support for hosted DNS zones with structured value conversion, multiple
+  values, ID-preserving CRUD and simultaneous TTL/value updates. Repair duplicate
+  active DS rows and inconsistent TTLs; preserve inactive rows and metadata.
+- Validate DS operations before any plan writes, propagate API errors, invalidate
+  the cache on failure, and avoid mutating shared desired/existing records.
+- Require Python >=3.10 and octoDNS >=1.22.0 as agreed in #25. Add minimum-version
+  and current-version CI checks, offline DS regression tests and YAML docs (#14).
+- Mark this feature branch as 0.1.0.dev0; DS is not part of the 0.0.19 patch.
+  Existing non-DS reconciliation limitations below remain until the #25 rewrite.
+
 ## 0.0.18 — 2026-10-11
 
 - Apply TTL-only changes with `dns/mod-record` for every API row of the managed
