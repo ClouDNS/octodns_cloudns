@@ -753,14 +753,14 @@ class ClouDNSProvider(BaseProvider):
     def _rows_to_delete(self, existing, records, to_delete):
         '''API rows holding the values in ``to_delete``.
 
-        Plain string values compare with the row's ``record`` field directly.
-        Structured values such as MX and SRV spread across several row fields,
-        so they go through the same field-by-field matcher used to find the
-        record's rows in the first place.
+        MX and SRV values spread across several API fields and use their
+        complete field-by-field matchers. Keep the original matching for other
+        types: some structured matchers (notably NAPTR) are only partial and
+        must not be used to select obsolete values.
         '''
         if not to_delete:
             return []
-        if all(isinstance(value, str) for value in to_delete):
+        if existing._type not in ('MX', 'SRV'):
             return [row for row in records if row['record'] in to_delete]
         obsolete = existing.copy()
         obsolete.values = sorted(to_delete)

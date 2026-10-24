@@ -106,3 +106,55 @@ def test_srv_update_deletes_the_obsolete_target_only(existing_values, expect_cre
         assert [v.target for v in created_values(provider)] == ['new.example.net.']
     else:
         provider._apply_create.assert_not_called()
+
+
+@pytest.mark.parametrize('record_type,old,field,replacement', [
+    ('MX', OLD_MX, 'preference', 20),
+    ('MX', OLD_MX, 'exchange', 'other.example.net.'),
+    ('SRV', OLD_SRV, 'priority', 20),
+    ('SRV', OLD_SRV, 'weight', 10),
+    ('SRV', OLD_SRV, 'port', 8443),
+    ('SRV', OLD_SRV, 'target', 'other.example.net.'),
+])
+@pytest.mark.parametrize('trailing_dot', [False, True])
+def test_each_mx_srv_field_distinguishes_retained_row(
+        record_type, old, field, replacement, trailing_dot):
+    zone = Zone('example.com.', [])
+    name = 'mail' if record_type == 'MX' else '_probe._tcp'
+    retained = dict(old, **{field: replacement})
+    def row(row_id, value):
+        result = (mx_row(row_id, name, **value) if record_type == 'MX'
+                  else srv_row(row_id, name, value))
+        if trailing_dot:
+            result['record'] += '.'
+        return result
+    rows = {'1': row('1', old), '2': row('2', retained)}
+    rows['3'] = dict(rows['1'], id='3', type='TXT')
+    provider = provider_with(zone, rows)
+    existing = record(zone, name, record_type, [old, retained])
+    desired = record(zone, name, record_type, [retained])
+    before = deepcopy((existing.data, desired.data, rows))
+    provider._apply_update(Update(existing, desired))
+    provider._client.record_delete.assert_called_once_with('example.com', '1')
+    provider._apply_create.assert_not_called()
+    assert (existing.data, desired.data, rows) == before
+
+
+def test_naptr_partial_matcher_cannot_select_retained_value_for_deletion():
+    zone = Zone('example.com.', [])
+    old = dict(order=10, preference=20, flags='S', service='SIP+D2U',
+               regexp='', replacement='old.example.net.')
+    retained = dict(old, replacement='retained.example.net.')
+    rows = {
+        str(i): dict(id=str(i), host='naptr', type='NAPTR', ttl='3600',
+                     order='10', pref='20', flag='S', params='SIP+D2U',
+                     regexp='', replace=value['replacement'], record='')
+        for i, value in enumerate([old, retained], 1)
+    }
+    provider = provider_with(zone, rows)
+    existing = record(zone, 'naptr', 'NAPTR', [old, retained])
+    obsolete = {record(zone, 'naptr', 'NAPTR', [old]).values[0]}
+    # NAPTR's legacy matcher compares only order, preference and flags. It is
+    # insufficient for value deletion; preserve the pre-PR selection behavior.
+    selected = provider._rows_to_delete(existing, list(rows.values()), obsolete)
+    assert selected == []
