@@ -735,10 +735,9 @@ class ClouDNSProvider(BaseProvider):
             to_delete = {value.replace(r'\;', ';') for value in to_delete}
 
         operations = 0
-        for record in records:
-            if record['record'] in to_delete:
-                self._client.record_delete(zone.name[:-1], record['id'])
-                operations += 1
+        for record in self._rows_to_delete(existing, records, to_delete):
+            self._client.record_delete(zone.name[:-1], record['id'])
+            operations += 1
 
         if to_create:
             # Do not modify change.new: it is shared with plan.desired/targets.
@@ -750,6 +749,22 @@ class ClouDNSProvider(BaseProvider):
             raise ProviderException(
                 'Update produced no API operations: {} {}'.format(
                     existing.fqdn, existing._type))
+
+    def _rows_to_delete(self, existing, records, to_delete):
+        '''API rows holding the values in ``to_delete``.
+
+        MX and SRV values spread across several API fields and use their
+        complete field-by-field matchers. Keep the original matching for other
+        types: some structured matchers (notably NAPTR) are only partial and
+        must not be used to select obsolete values.
+        '''
+        if not to_delete:
+            return []
+        if existing._type not in ('MX', 'SRV'):
+            return [row for row in records if row['record'] in to_delete]
+        obsolete = existing.copy()
+        obsolete.values = sorted(to_delete)
+        return self._records_are_same(obsolete)
 
     def records_are_same(self, existing):
         records = self._records_are_same(existing)
