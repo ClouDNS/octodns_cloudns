@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.0.19 — unreleased
+
+- Fix escaped TXT value removal during updates: normalize octoDNS's escaped
+  semicolons before comparing obsolete values with raw API rows (PR #32).
+- Fix obsolete MX and SRV value removal during updates using their complete
+  structured matchers. Preserve retained values and isolate matching by name,
+  type and every MX/SRV value field. Keep the legacy behavior for other types,
+  including NAPTR's partial matcher (PR #44).
+- Preserve the Python >=3.6, octoDNS >=0.9.17 and requests >=2.27.0 dependency
+  floors from 0.0.18. DS support and the 0.1.0 rewrite are not included.
+
+### Release gates
+
+- This branch is not ready to tag or publish. Integrate istr's focused #25 D7
+  guards and regression tests for zero-match deletes and unsupported TLSA
+  update/delete operations before release; they are not implemented here.
+- Verify #25 D8's inactive-row preservation boundary, including full-name/type
+  deletion. The inherited legacy delete path does not enforce that boundary.
+- Run the compatibility matrix, check wheel/sdist metadata, and validate writes
+  with read-back and an empty second plan in an explicitly configured isolated
+  test zone. No live DNS validation has been performed for this release yet.
+- Value changes can now delete obsolete TXT/MX/SRV rows that older versions
+  left behind. Review plans before applying. Existing legacy limitations below,
+  including partial-apply risks and simultaneous TTL/value rejection, remain.
+
 ## 0.0.18 — 2026-10-11
 
 - Apply TTL-only changes with `dns/mod-record` for every API row of the managed
