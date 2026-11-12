@@ -40,6 +40,10 @@ minimum 2.27.0. Skips are opt-in live/integration tests and record types missing
 from older octoDNS versions. Python 3.6 was not executed; its metadata floor is
 preserved, not newly certified by these runs.
 
+CI uses Ubuntu 22.04 to retain Python 3.8 availability. The initial remote run
+on ubuntu-latest failed during setup-python because that label now selected
+Ubuntu 26.04, for which Python 3.8 was unavailable; no test ran in that failure.
+
 Wheel and sdist built successfully with `python -m build`; `twine check` passed
 for both. These are preparation artifacts, not approved release artifacts.
 The dependency metadata and packaged provider are checked separately.
