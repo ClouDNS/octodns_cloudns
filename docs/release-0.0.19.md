@@ -1,7 +1,7 @@
 # 0.0.19 preparation and validation
 
-Status: **unreleased; blocked on the agreed #25 D7 guards and D8 review**.
-Prepared on 2026-11-12. Do not tag or publish this branch in its current state.
+Status: **unreleased; D7 guards and inactive-row deletion protection implemented**.
+Prepared on 2026-11-12. Live validation remains outstanding.
 
 ## Source and scope
 
@@ -23,17 +23,32 @@ API, retain unchanged rows, check desired-state immutability, and require an
 empty second plan. New backported mock assertions use tuple indexing so they do
 not require Python 3.8's call_args.args/kwargs properties.
 
+After confirming that istr's public branches contained no D7 implementation,
+the maintainer authorized implementation here. Deletes without active matches
+now raise ProviderException, and unsupported TLSA value updates/deletes produce
+an explicit diagnostic. The existing TLSA TTL-only path remains supported.
+Legacy value updates validate every obsolete value before deleting or creating
+anything, including when other removals match or additions would succeed. The
+guards run across the plan before zone creation or other writes, and are also
+enforced on direct _apply_update/_apply_delete calls.
+
+Value removals and full-name/type deletes preserve inactive rows (status 0 or
+"0"), deduplicate IDs, and reject invalid active-row IDs/statuses. An inactive-only
+match is a loud failure, not a successful no-op. No purge option was added.
+Regression tests cover partial matches, the replace-all fallback, state
+immutability, cache cleanup, and API error propagation without retry.
+
 ## Local verification
 
 All runs used `python -m pytest tests/ --disable-network -q`.
 
 | Python | octoDNS | Passed | Skipped |
 | --- | --- | --- | --- |
-| 3.8.20 | 0.9.17 | 168 | 29 |
-| 3.8.20 | 1.10.0 | 173 | 24 |
-| 3.10.22 | 1.3.0 | 173 | 24 |
-| 3.10.22 | 1.22.0 | 173 | 24 |
-| 3.12.14 | 1.22.0 | 173 | 24 |
+| 3.8.20 | 0.9.17 | 190 | 32 |
+| 3.8.20 | 1.10.0 | 198 | 24 |
+| 3.10.22 | 1.3.0 | 198 | 24 |
+| 3.10.22 | 1.22.0 | 198 | 24 |
+| 3.12.14 | 1.22.0 | 198 | 24 |
 
 The Python 3.8 / octoDNS 0.9.17 run also passed with requests pinned to its
 minimum 2.27.0. Skips are opt-in live/integration tests and record types missing
@@ -50,20 +65,10 @@ The dependency metadata and packaged provider are checked separately.
 
 ## Remaining release gates
 
-1. Integrate istr's focused D7 patch and tests: zero-match deletes fail clearly;
-   unsupported TLSA update/delete fail diagnostically, preserving the existing
-   TLSA TTL-only path. No such patch was present in upstream PRs or the public
-   branches inspected in istr's fork on the preparation date. This work has
-   deliberately not been duplicated.
-2. Verify D8: preserve inactive rows, including full-name/type deletion. The
-   inherited legacy delete matcher does not filter inactive rows. Review the
-   backported value-deletion paths under the same ownership boundary.
-3. Repeat the matrix and packaging checks after those changes; inspect the
-   complete diff against the base tag for accidental 0.1.0 additions.
-4. Perform explicitly configured isolated-zone live checks, including read-back
+1. Perform explicitly configured isolated-zone live checks, including read-back
    and an empty second plan. Local convergence tests above use synthetic data;
    no live DNS writes were made during preparation.
-5. Approve the final commit and rebuild/verify its artifacts before creating the
+2. Approve the final commit and rebuild/verify its artifacts before creating the
    tag, GitHub release, or PyPI publication. Never use main's publication script
    unchanged: it is pinned to 0.0.18 and that release's hashes.
 
@@ -71,3 +76,6 @@ Successful backports do not add transactional rollback, fix other structured
 record matchers, or support simultaneous TTL/value changes. Errors can still
 follow partial writes in legacy paths. Review production plans: obsolete
 TXT/MX/SRV rows previously left behind can now be deleted.
+The legacy populate path still exposes inactive values; inactive-aware read-side
+convergence is outside this guard patch. Inactive-only removals therefore fail
+and require operator review rather than deleting or reactivating those rows.

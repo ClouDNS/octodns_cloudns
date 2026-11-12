@@ -668,6 +668,45 @@ class ClouDNSProvider(BaseProvider):
                                         change.new.ttl, fields)
             return
 
+        records, to_create = self._legacy_value_operations(change)
+        for record in records:
+            self._client.record_delete(zone.name[:-1], record['id'])
+        if to_create is None:
+            self._apply_create(change)
+        elif to_create:
+            # Do not modify change.new: it is shared with plan.desired/targets.
+            new = change.new.copy()
+            new.values = sorted(to_create)
+            self._apply_create(Change(existing=existing, new=new))
+
+    @staticmethod
+    def _reject_legacy_tlsa(existing, operation):
+        if existing._type == 'TLSA':
+            raise ProviderException(
+                'TLSA {} is not supported by the legacy value matcher: {}. '
+                'TLSA TTL-only updates remain supported.'.format(
+                    operation, existing.fqdn))
+
+    @staticmethod
+    def _active_delete_rows(existing, rows):
+        # Inactive rows belong to the operator, including full-rrset deletes.
+        # Missing status means active for older API fixtures/consumers.
+        active = {}
+        for row in rows:
+            status = str(row.get('status', 1))
+            if status == '0':
+                continue
+            if status != '1' or not row.get('id'):
+                raise ProviderException(
+                    'Cannot safely delete API row with invalid status or ID: '
+                    '{} {}'.format(existing.fqdn, existing._type))
+            active[row['id']] = row
+        return list(active.values())
+
+    def _legacy_value_operations(self, change):
+        '''Validate legacy value removals without performing any writes.'''
+        existing = change.existing
+        self._reject_legacy_tlsa(existing, 'value update')
         records = self._records_are_same(existing)
         try:
             to_delete = set(existing.values).difference(change.new.values)
@@ -678,30 +717,44 @@ class ClouDNSProvider(BaseProvider):
             replace_all = any('record' not in record for record in records)
 
         if replace_all:
-            for record in records:
-                self._client.record_delete(zone.name[:-1], record['id'])
-            self._apply_create(change)
-            return
+            records = self._active_delete_rows(existing, records)
+            if not records:
+                raise ProviderException(
+                    'Update removals matched no active API rows: {} {}'.format(
+                        existing.fqdn, existing._type))
+            # Older octoDNS values may be unhashable. A partial match must not
+            # let this fallback delete some rows and recreate the whole rrset.
+            for value in existing.values:
+                one_value = existing.copy()
+                one_value.values = [value]
+                if not self._active_delete_rows(
+                        existing, self._records_are_same(one_value)):
+                    raise ProviderException(
+                        'Update removals matched no active API rows: {} {}'.format(
+                            existing.fqdn, existing._type))
+            return records, None
 
         # octoDNS escapes TXT semicolons; API rows contain the raw values.
         if existing._type == 'TXT':
             to_delete = {value.replace(r'\;', ';') for value in to_delete}
 
-        operations = 0
-        for record in self._rows_to_delete(existing, records, to_delete):
-            self._client.record_delete(zone.name[:-1], record['id'])
-            operations += 1
-
-        if to_create:
-            # Do not modify change.new: it is shared with plan.desired/targets.
-            new = change.new.copy()
-            new.values = sorted(to_create)
-            self._apply_create(Change(existing=existing, new=new))
-            operations += len(to_create)
-        if not operations:
+        # Check every removed value: a successful add must not conceal even a
+        # partially unmatched removal. Keep unsupported matchers fail-loud.
+        deleting = []
+        for value in to_delete:
+            matched = self._active_delete_rows(
+                existing, self._rows_to_delete(existing, records, {value}))
+            if not matched:
+                raise ProviderException(
+                    'Update removals matched no active API rows: {} {}'.format(
+                        existing.fqdn, existing._type))
+            deleting.extend(matched)
+        deleting = self._active_delete_rows(existing, deleting)
+        if not deleting and not to_create:
             raise ProviderException(
                 'Update produced no API operations: {} {}'.format(
                     existing.fqdn, existing._type))
+        return deleting, to_create
 
     def _rows_to_delete(self, existing, records, to_delete):
         '''API rows holding the values in ``to_delete``.
@@ -839,10 +892,18 @@ class ClouDNSProvider(BaseProvider):
     def _apply_delete(self, change):
         existing = change.existing
         zone = existing.zone
-        record_ids = self.records_are_same(existing)
-        
+        record_ids = self._delete_record_ids(existing)
         for record_id in record_ids:
             self._client.record_delete(zone.name[:-1], record_id)
+
+    def _delete_record_ids(self, existing):
+        self._reject_legacy_tlsa(existing, 'delete')
+        rows = self._active_delete_rows(existing, self._records_are_same(existing))
+        if not rows:
+            raise ProviderException(
+                'Delete matched no active API rows: {} {}'.format(
+                    existing.fqdn, existing._type))
+        return [row['id'] for row in rows]
 
     def _apply(self, plan):
         desired = plan.desired
@@ -860,6 +921,10 @@ class ClouDNSProvider(BaseProvider):
                         raise ProviderException(
                             'Change TTL and values separately until '
                             'update-based reconciliation')
+                    elif hasattr(change.existing, 'values'):
+                        self._legacy_value_operations(change)
+                elif change.__class__.__name__ == 'Delete':
+                    self._delete_record_ids(change.existing)
             # Does the zone actually exist?
             try:
                 zone = self._client.zone(zone_name)

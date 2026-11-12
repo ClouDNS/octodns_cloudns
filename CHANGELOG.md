@@ -10,20 +10,29 @@
   including NAPTR's partial matcher (PR #44).
 - Preserve the Python >=3.6, octoDNS >=0.9.17 and requests >=2.27.0 dependency
   floors from 0.0.18. DS support and the 0.1.0 rewrite are not included.
+- Fail explicitly when a delete matches no active API rows. Deduplicate matched
+  IDs and reject invalid IDs/statuses before deleting any row.
+- Reject unsupported TLSA value updates/deletes with a clear ProviderException
+  instead of an incidental value-comparison crash; retain TLSA TTL-only updates.
+- Validate legacy value removals before writes, including each obsolete value,
+  so successful additions cannot hide skipped removals. Preflight these guards
+  across the plan before zone creation or other writes (#25 D7).
+- Preserve inactive rows during legacy deletes and value removals, including
+  full-name/type deletion and the replace-all fallback (#25 D8). Inactive-only
+  matches fail explicitly; this patch has no inactive-row purge option.
 
 ### Release gates
 
-- This branch is not ready to tag or publish. Integrate istr's focused #25 D7
-  guards and regression tests for zero-match deletes and unsupported TLSA
-  update/delete operations before release; they are not implemented here.
-- Verify #25 D8's inactive-row preservation boundary, including full-name/type
-  deletion. The inherited legacy delete path does not enforce that boundary.
-- Run the compatibility matrix, check wheel/sdist metadata, and validate writes
-  with read-back and an empty second plan in an explicitly configured isolated
-  test zone. No live DNS validation has been performed for this release yet.
+- Local regression/compatibility and package checks are documented in
+  docs/release-0.0.19.md. Live read-back and an empty second plan in an explicitly
+  configured isolated test zone remain outstanding; no live DNS writes were
+  made during preparation.
 - Value changes can now delete obsolete TXT/MX/SRV rows that older versions
   left behind. Review plans before applying. Existing legacy limitations below,
   including partial-apply risks and simultaneous TTL/value rejection, remain.
+- Inactive rows remain visible to the legacy populate path. Preserving their
+  storage does not add inactive-aware convergence; plans involving inactive-only
+  removals fail and require operator review. Other legacy matcher defects remain.
 
 ## 0.0.18 — 2026-10-11
 
