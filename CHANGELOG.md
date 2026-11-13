@@ -24,9 +24,11 @@
 ### Release gates
 
 - Local regression/compatibility and package checks are documented in
-  docs/release-0.0.19.md. Live read-back and an empty second plan in an explicitly
-  configured isolated test zone remain outstanding; no live DNS writes were
-  made during preparation.
+  docs/release-0.0.19.md. Nine dedicated live checks passed on 2026-11-13,
+  including active-value read-back/convergence, guard preflight and inactive
+  preservation. All four original rows were unchanged and all temporary rows
+  removed. See docs/live-validation-0.0.19.md for the recovered initial API 503
+  during cleanup and the scope of the successful final run.
 - Value changes can now delete obsolete TXT/MX/SRV rows that older versions
   left behind. Review plans before applying. Existing legacy limitations below,
   including partial-apply risks and simultaneous TTL/value rejection, remain.

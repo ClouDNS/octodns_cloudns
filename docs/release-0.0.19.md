@@ -1,7 +1,8 @@
 # 0.0.19 preparation and validation
 
 Status: **unreleased; D7 guards and inactive-row deletion protection implemented**.
-Prepared on 2026-11-12. Live validation remains outstanding.
+Prepared on 2026-11-12. Live validation completed on 2026-11-13; see
+[live-validation-0.0.19.md](live-validation-0.0.19.md).
 
 ## Source and scope
 
@@ -40,7 +41,8 @@ immutability, cache cleanup, and API error propagation without retry.
 
 ## Local verification
 
-All runs used `python -m pytest tests/ --disable-network -q`.
+All runs used `python -m pytest tests/ --disable-network -q`. This matrix
+records the guard implementation before adding the nine opted-in live cases.
 
 | Python | octoDNS | Passed | Skipped |
 | --- | --- | --- | --- |
@@ -63,12 +65,19 @@ Wheel and sdist built successfully with `python -m build`; `twine check` passed
 for both. These are preparation artifacts, not approved release artifacts.
 The dependency metadata and packaged provider are checked separately.
 
+## Live verification
+
+All nine dedicated live checks passed on Python 3.12 / octoDNS 1.22.0, including
+TXT/MX/SRV convergence, TLSA TTL-only and explicit value-operation errors,
+zero-match/partial-removal preflight, and inactive-row preservation for four
+types. The final run created and removed 19 temporary rows; all four baseline
+rows remained unchanged. An initial cleanup HTTP 503 and its verified recovery
+are documented in the live report. Current local offline verification is
+198 passed, 33 skipped (the nine extra skips are the opted-in live module).
+
 ## Remaining release gates
 
-1. Perform explicitly configured isolated-zone live checks, including read-back
-   and an empty second plan. Local convergence tests above use synthetic data;
-   no live DNS writes were made during preparation.
-2. Approve the final commit and rebuild/verify its artifacts before creating the
+1. Approve the final commit and rebuild/verify its artifacts before creating the
    tag, GitHub release, or PyPI publication. Never use main's publication script
    unchanged: it is pinned to 0.0.18 and that release's hashes.
 
