@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.0.19 — unreleased
+## 0.0.19 — 2026-11-14
 
 - Fix escaped TXT value removal during updates: normalize octoDNS's escaped
   semicolons before comparing obsolete values with raw API rows (PR #32).
@@ -21,7 +21,7 @@
   full-name/type deletion and the replace-all fallback (#25 D8). Inactive-only
   matches fail explicitly; this patch has no inactive-row purge option.
 
-### Release gates
+### Validation and known limits
 
 - Local regression/compatibility and package checks are documented in
   docs/release-0.0.19.md. Nine dedicated live checks passed on 2026-11-13,

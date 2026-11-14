@@ -1,6 +1,6 @@
 # 0.0.19 preparation and validation
 
-Status: **unreleased; D7 guards and inactive-row deletion protection implemented**.
+Status: **validated; publication authorized on 2026-11-14**.
 Prepared on 2026-11-12. Live validation completed on 2026-11-13; see
 [live-validation-0.0.19.md](live-validation-0.0.19.md).
 
@@ -75,11 +75,15 @@ rows remained unchanged. An initial cleanup HTTP 503 and its verified recovery
 are documented in the live report. Current local offline verification is
 198 passed, 33 skipped (the nine extra skips are the opted-in live module).
 
-## Remaining release gates
+## Publication
 
-1. Approve the final commit and rebuild/verify its artifacts before creating the
-   tag, GitHub release, or PyPI publication. Never use main's publication script
-   unchanged: it is pinned to 0.0.18 and that release's hashes.
+Publication is authorized on 2026-11-14. The dedicated `publish-0.0.19.yml`
+workflow rechecks all five compatibility configurations, builds from the final
+release branch commit, verifies the provider against the live-validated source,
+and publishes the GitHub tag/release and PyPI files. It verifies matching hashes
+and installation in a fresh environment. Reruns reuse GitHub's original package
+bytes and reject conflicting tags or PyPI hashes. The existing main publication
+script remains pinned to 0.0.18 and is not used for this release.
 
 Successful backports do not add transactional rollback, fix other structured
 record matchers, or support simultaneous TTL/value changes. Errors can still
