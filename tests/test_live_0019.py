@@ -134,7 +134,8 @@ class LiveZone:
         # Discover own rows even if add-record's response was lost. Never adopt
         # a baseline ID or any row whose name was not reserved by this test.
         remaining = self.rows()
-        for record_id, row in remaining.items():
+        for record_id, row in sorted(remaining.items(),
+                                     key=lambda item: item[1]['type'] != 'DS'):
             if row['host'] in self.names and record_id not in self.baseline:
                 self.owned.add(str(record_id))
                 self.checkpoint()
@@ -255,3 +256,59 @@ def test_live_delete_preserves_inactive_and_guards_inactive_only(live, kind, old
     live.assert_guard(Delete(inactive_only), 'Delete matched no active API rows')
     live.assert_guard(Update(inactive_only, live.record(kind, host, [old])),
                       'Update removals matched no active API rows')
+
+
+def test_live_ds_delegation_combined_plan(live):
+    """Create NS+DS together, replace NS while signed, then delete both."""
+    value = dict(key_tag=12345, algorithm=13, digest_type=2, digest='ab' * 32)
+    host = live.name('DS')
+    provider = live.provider
+
+    def sync(ns_values, ds_values):
+        provider._zone_records.clear()
+        desired = Zone(live.domain + '.', [])
+        provider.populate(desired)
+        for record in list(desired.records):
+            if record.name == host and record._type in ('NS', 'DS'):
+                desired.remove_record(record)
+        for kind, values in [('NS', ns_values), ('DS', ds_values)]:
+            if values:
+                desired.add_record(Record.new(desired, host, dict(
+                    type=kind, ttl=300, values=values)))
+        plan = provider.plan(desired)
+        assert plan is not None
+        assert all(c.record.name == host and c.record._type in ('NS', 'DS')
+                   for c in plan.changes)
+        provider.apply(plan)
+        assert provider.plan(desired) is None
+        return {key: row for key, row in live.rows().items()
+                if row['host'] == host}
+
+    created = sync(['ns1.example.net.'], [value])
+    assert {r['type'] for r in created.values()} == {'NS', 'DS'}
+    ds_id = next(key for key, row in created.items() if row['type'] == 'DS')
+    replaced = sync(['ns2.example.net.'], [value])
+    assert replaced[ds_id] == created[ds_id]
+    assert {r['record'].rstrip('.') for r in replaced.values()
+            if r['type'] == 'NS'} == {'ns2.example.net'}
+    assert sync([], []) == {}
+
+
+def test_live_ds_delegation_missing_preflights_entire_plan(live):
+    host = live.name('DS')
+    auxiliary = live.name('aux')
+    provider = live.provider
+    desired = Zone(live.domain + '.', [])
+    provider.populate(desired)
+    desired.add_record(Record.new(desired, host, dict(
+        type='DS', ttl=300, values=[dict(key_tag=12345, algorithm=13,
+                                       digest_type=2, digest='ab' * 32)])))
+    desired.add_record(Record.new(desired, auxiliary, dict(
+        type='A', ttl=300, value='192.0.2.200')))
+    before = live.rows()
+    count = len(live.writes)
+    with pytest.raises(ProviderException, match='active NS delegation'):
+        provider.apply(provider.plan(desired))
+    assert len(live.writes) == count
+    assert live.rows() == before
+    assert provider._zone_records == {}

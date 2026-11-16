@@ -8,6 +8,8 @@ def ensure_ds_type():
     except ImportError:
         pass
     from octodns.record import Record, ValuesMixin
+    if 'DS' in Record._CLASSES:
+        return
     from octodns.equality import EqualityTupleMixin
 
     class DsValue(EqualityTupleMixin, dict):
