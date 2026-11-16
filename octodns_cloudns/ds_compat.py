@@ -7,8 +7,7 @@ def ensure_ds_type():
         return
     except ImportError:
         pass
-    from octodns.record import Record
-    from octodns.record.base import ValuesMixin
+    from octodns.record import Record, ValuesMixin
     from octodns.equality import EqualityTupleMixin
 
     class DsValue(EqualityTupleMixin, dict):
