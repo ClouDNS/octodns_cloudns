@@ -122,7 +122,7 @@ def test_inactive_rows_are_preserved_and_not_populated():
     provider._zone_records["example.com."] = rows
     zone = Zone("example.com.", [])
     provider.populate(zone)
-    assert next(iter(zone.get("child", "DS"))).values == record().values
+    assert next(r for r in zone.records if r.name == "child" and r._type == "DS").values == record().values
     assert operations(rows, record(), deleting=True) == [("delete", "1", None)]
 
 
