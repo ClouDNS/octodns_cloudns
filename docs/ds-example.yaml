@@ -1,0 +1,13 @@
+# Zone file for example.com.; digests below are illustrative, not real keys.
+child:
+  type: DS
+  ttl: 3600
+  values:
+    - key_tag: 12345
+      algorithm: 13
+      digest_type: 2
+      digest: abababababababababababababababababababababababababababababababab
+    - key_tag: 23456
+      algorithm: 13
+      digest_type: 2
+      digest: cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd
