@@ -357,7 +357,8 @@ class ClouDNSProvider(BaseProvider):
         for record in desired.records:
             if record._type != 'DS' or (record.name, 'DS') in changed:
                 continue
-            old = next(iter(existing.get(record.name, 'DS')), None)
+            old = next((candidate for candidate in existing.records
+                        if candidate.name == record.name and candidate._type == 'DS'), None)
             if old is not None and self._ds_operations(Update(old, record)):
                 extra.append(Update(old, record))
         return extra
