@@ -2,6 +2,10 @@
 
 ## 0.1.0 — unreleased
 
+- Require same-owner active NS delegations for DS records before any plan writes.
+  Create NS before DS, delete DS before NS, and retain a delegation during NS
+  replacement. Add API dependency regression tests and a complete NS + DS example.
+
 - Add DS support for hosted DNS zones with structured value conversion, multiple
   values, ID-preserving CRUD and simultaneous TTL/value updates. Repair duplicate
   active DS rows and inconsistent TTLs; preserve inactive rows and metadata.

@@ -144,8 +144,10 @@ def test_geodns_rejected_before_write():
 
 
 class Api:
-    def __init__(self, requests_mock, rows):
+    def __init__(self, requests_mock, rows, with_ns=True):
         self.rows = deepcopy(rows)
+        if with_ns:
+            self.rows['ns'] = ns_row()
         self.writes = []
         self.next_id = 100
         self.fail = None
@@ -181,15 +183,32 @@ class Api:
         if endpoint == self.fail:
             return {"status": "Failed", "statusDescription": "Synthetic failure"}
         if endpoint == "delete-record":
+            target = self.rows[body['record-id']]
+            if target['type'] == 'NS':
+                others = [r for k, r in self.rows.items()
+                          if k != body['record-id'] and r['host'] == target['host']
+                          and r['type'] == 'NS' and DsCodec.active(r)]
+                assert others or not any(r['type'] == 'DS' and
+                    r['host'] == target['host'] for r in self.rows.values())
             del self.rows[body["record-id"]]
         elif endpoint == "mod-record":
             record_id = body.pop("record-id")
             self.rows[record_id].update(body)
         else:
-            assert body.pop("record-type") == "DS"
+            kind = body.pop('record-type')
+            assert kind in ('DS', 'NS', 'CNAME')
+            assert not any(
+                r['host'] == body['host'] and
+                (r['type'] == 'CNAME' or kind == 'CNAME')
+                for r in self.rows.values())
+            if kind == 'CNAME':
+                body['record'] = body['record'].rstrip('.')
+            if kind == 'DS':
+                assert any(r['type'] == 'NS' and r['host'] == body['host']
+                           and DsCodec.active(r) for r in self.rows.values())
             record_id = str(self.next_id)
             self.next_id += 1
-            self.rows[record_id] = dict(body, id=record_id, type="DS")
+            self.rows[record_id] = dict(body, id=record_id, type=kind)
             if self.ambiguous_add:
                 from requests import Timeout
 
@@ -203,8 +222,19 @@ def provider():
     return result
 
 
-def desired(values=(V1,), ttl=300):
+def ns_row(status=1):
+    return dict(id='ns', host='child', type='NS', ttl='300',
+                record='ns1.example.net', status=status)
+
+
+def delegation(zone, values=('ns1.example.net.',)):
+    return Record.new(zone, 'child', dict(type='NS', ttl=300, values=list(values)))
+
+
+def desired(values=(V1,), ttl=300, with_ns=True):
     zone = Zone("example.com.", [])
+    if with_ns:
+        zone.add_record(delegation(zone))
     if values:
         zone.add_record(record(values, ttl, zone=zone))
     return zone
@@ -272,7 +302,7 @@ def test_duplicate_and_mixed_ttl_drift_repaired(requests_mock):
     assert len(plan.changes) == 1
     p.apply(plan)
     assert [op for op, _ in api.writes] == ["mod-record", "delete-record"]
-    assert set(api.rows) == {"1", "2"}
+    assert set(api.rows) == {"1", "2", "ns"}
     assert p.plan(zone) is None
 
 
@@ -332,7 +362,10 @@ def test_yaml_documentation_example():
     import yaml
 
     data = yaml.safe_load(Path("docs/ds-example.yaml").read_text())
-    assert len(Record.new(Zone("example.com.", []), "child", data["child"]).values) == 2
+    records = [Record.new(Zone('example.com.', []), 'child', rrset)
+               for rrset in data['child']]
+    assert [r._type for r in records] == ['NS', 'DS']
+    assert len(records[1].values) == 2
 
 
 @pytest.mark.parametrize(
@@ -404,3 +437,146 @@ def test_invalid_row_ttl_fails_before_operations(ttl):
     api["ttl"] = ttl
     with pytest.raises(ProviderException, match="TTL"):
         operations({"1": api}, record(ttl=3600))
+
+
+@pytest.mark.parametrize('ns', [None, ns_row(0), dict(ns_row(), host='')])
+def test_ds_without_same_name_active_delegation_preflights_all_writes(requests_mock, ns):
+    from octodns.record import Create
+    from octodns.provider.plan import Plan
+
+    api = Api(requests_mock, {'ns': ns} if ns else {}, with_ns=False)
+    p = provider()
+    zone = desired(with_ns=False)
+    auxiliary = Record.new(zone, 'a', dict(type='A', ttl=300, value='192.0.2.1'))
+    plan = Plan(Zone('example.com.', []), zone,
+                [Create(auxiliary), Create(record(zone=zone))], True)
+    with pytest.raises(ProviderException, match='active NS delegation at child.example.com'):
+        p.apply(plan)
+    assert api.writes == []
+    assert p._zone_records == {}
+
+
+def test_combined_delegation_create_and_delete(requests_mock):
+    api = Api(requests_mock, {}, with_ns=False)
+    p = provider()
+    zone = desired()
+    plan = p.plan(zone)
+    original_order = list(plan.changes)
+    p.apply(plan)
+    assert plan.changes == original_order
+    assert [(op, body.get('record-type')) for op, body in api.writes] == [
+        ('add-record', 'NS'), ('add-record', 'DS')]
+    assert p.plan(zone) is None
+    ids = {r['type']: k for k, r in api.rows.items()}
+    empty = desired([], with_ns=False)
+    p.apply(p.plan(empty))
+    assert [body['record-id'] for op, body in api.writes if op == 'delete-record'] == [
+        ids['DS'], ids['NS']]
+    assert api.rows == {}
+    assert p.plan(empty) is None
+
+
+@pytest.mark.parametrize('inactive', [False, True])
+def test_removing_delegation_with_retained_ds_is_rejected(requests_mock, inactive):
+    api = Api(requests_mock, {'1': dict(row(), status=0 if inactive else 1)})
+    p = provider()
+    zone = desired([] if inactive else [V1], with_ns=False)
+    with pytest.raises(ProviderException, match='active NS delegation'):
+        p.apply(p.plan(zone))
+    assert api.writes == []
+    assert p._zone_records == {}
+
+
+def test_desired_ns_filtered_out_of_plan_does_not_satisfy_dependency(requests_mock):
+    from octodns.provider.plan import Plan
+    from octodns.record import Create
+
+    api = Api(requests_mock, {}, with_ns=False)
+    zone = desired()
+    with pytest.raises(ProviderException, match='active NS delegation'):
+        provider().apply(Plan(Zone('example.com.', []), zone,
+                             [Create(record(zone=zone))], True))
+    assert api.writes == []
+
+
+def test_ns_replacement_never_removes_last_delegation(requests_mock):
+    api = Api(requests_mock, {'1': row()})
+    p = provider()
+    zone = desired()
+    zone.add_record(delegation(zone, ['ns2.example.net.']), replace=True)
+    p.apply(p.plan(zone))
+    assert [op for op, _ in api.writes] == ['add-record', 'delete-record']
+    assert api.rows['1']['type'] == 'DS'
+    assert p.plan(zone) is None
+
+
+def test_ns_add_failure_does_not_write_ds(requests_mock):
+    api = Api(requests_mock, {}, with_ns=False)
+    api.fail = 'add-record'
+    p = provider()
+    with pytest.raises(ClouDNSClientException, match='Synthetic failure'):
+        p.apply(p.plan(desired()))
+    assert len(api.writes) == 1
+    assert api.writes[0][1]['record-type'] == 'NS'
+    assert api.rows == {}
+    assert p._zone_records == {}
+
+
+def test_ds_delete_failure_keeps_ns_delegation(requests_mock):
+    api = Api(requests_mock, {'1': row()})
+    api.fail = 'delete-record'
+    p = provider()
+    with pytest.raises(ClouDNSClientException, match='Synthetic failure'):
+        p.apply(p.plan(desired([], with_ns=False)))
+    assert [body['record-id'] for _, body in api.writes] == ['1']
+    assert 'ns' in api.rows
+    assert p._zone_records == {}
+
+
+def test_partial_ns_replacement_recovers_without_duplicate_add(requests_mock):
+    api = Api(requests_mock, {'1': row()})
+    api.fail = 'delete-record'
+    p = provider()
+    zone = desired()
+    zone.add_record(delegation(zone, ['ns2.example.net.']), replace=True)
+    with pytest.raises(ClouDNSClientException, match='Synthetic failure'):
+        p.apply(p.plan(zone))
+    assert [op for op, _ in api.writes] == ['add-record', 'delete-record']
+    assert p._zone_records == {}
+    api.fail = None
+    p.apply(p.plan(zone))
+    assert [op for op, _ in api.writes] == [
+        'add-record', 'delete-record', 'delete-record']
+    assert p.plan(zone) is None
+
+
+def test_cname_to_delegation_and_back_orders_conflicting_records(requests_mock):
+    api = Api(requests_mock, {
+        'cname': dict(id='cname', host='child', type='CNAME', ttl='300',
+                      status=1, record='target.example.net')}, with_ns=False)
+    p = provider()
+    zone = desired()
+    p.apply(p.plan(zone))
+    assert [(op, body.get('record-type')) for op, body in api.writes] == [
+        ('delete-record', None), ('add-record', 'NS'), ('add-record', 'DS')]
+    assert p.plan(zone) is None
+    cname = desired([], with_ns=False)
+    cname.add_record(Record.new(cname, 'child', dict(
+        type='CNAME', ttl=300, value='target.example.net.')))
+    p.apply(p.plan(cname))
+    assert [op for op, _ in api.writes[3:]] == [
+        'delete-record', 'delete-record', 'add-record']
+    assert p.plan(cname) is None
+
+
+def test_inactive_ns_ttl_update_does_not_satisfy_ds_dependency(requests_mock):
+    api = Api(requests_mock, {'ns': ns_row(0)}, with_ns=False)
+    p = provider()
+    zone = desired()
+    ns = delegation(zone)
+    zone.add_record(Record.new(zone, 'child', dict(ns.data, type='NS', ttl=3600)),
+                    replace=True)
+    with pytest.raises(ProviderException, match='active NS delegation'):
+        p.apply(p.plan(zone))
+    assert api.writes == []
+    assert p._zone_records == {}

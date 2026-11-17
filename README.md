@@ -50,7 +50,9 @@ DS supports multiple structured values, ID-preserving updates and TTL changes.
 Requires Python >=3.10 and octoDNS >=1.22.0. See [DS documentation and YAML
 example](docs/ds.md). This manages DS in hosted zones; signing and registrar
 DNSSEC are outside its scope. This development branch is `0.1.0.dev0`, not a
-0.0.19 patch release.
+maintenance release. ClouDNS requires an NS delegation at the same owner name
+as DS; combined plans create NS before DS, delete DS before NS and keep a
+delegation throughout NS replacement.
 
 #### Dynamic
 
