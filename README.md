@@ -42,7 +42,23 @@ ClouDNSProvider suports GeoDNS records
 
 #### Records
 
-ClouDNSProvider suports А, AAAA, ALIAS, CAA, CNAME, DNAME, MX, NS, PTR, SPF, SRV, SSHFP, TXT, TLSA, LOC and NAPTR
+ClouDNSProvider suports А, AAAA, ALIAS, CAA, CNAME, DNAME, DS, MX, NS, PTR, SPF, SRV, SSHFP, TXT, TLSA, LOC and NAPTR
+
+#### DS records and delegations
+
+DS records are managed in the parent DNS hosting zone, not through registrar
+DNSSEC settings. ClouDNS requires an active NS delegation at the same owner name:
+for example, `child.example.com.` needs both NS and DS records in `example.com.`.
+The zone's apex NS records do not satisfy a child delegation.
+
+See [the complete NS + DS zone example](docs/ds-example.yaml). Replace the example
+name servers and digests with those of the actual child zone.
+
+NS and DS may be created or removed in one plan. The provider creates the NS
+records before DS, removes DS before the delegation, and adds replacement NS
+values before deleting old ones. Missing delegations and removal of the last
+active NS while DS records remain are rejected before any plan writes. Inactive
+DS records are preserved; remove those manually before removing their delegation.
 
 #### Dynamic
 

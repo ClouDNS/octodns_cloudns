@@ -1,1 +1,4 @@
 include scripts/publish_0019.py
+include scripts/publish_0020.py
+include docs/release-0.0.20.md
+include docs/release-notes-0.0.20.md

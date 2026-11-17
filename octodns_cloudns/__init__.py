@@ -6,12 +6,15 @@ import logging
 import time
 import threading
 from octodns.provider.base import BaseProvider
-from octodns.record import Record, Change
+from octodns.record import Record, Change, Update
+from .ds import DsCodec, operations as ds_operations
+from .ds_compat import ensure_ds_type
+ensure_ds_type()
 from urllib.parse import quote, quote_plus
 from types import SimpleNamespace
 logger = logging.getLogger(__name__)
 
-__version__ = __VERSION__ = '0.0.19'
+__version__ = __VERSION__ = '0.0.20'
 
 class ClouDNSClientException(ProviderException):
     pass
@@ -203,6 +206,8 @@ class ClouDNSClient(object):
 
     @classmethod
     def fields_from_row(cls, row):
+        if row['type'] == 'DS':
+            return DsCodec.fields(DsCodec.from_row(row))
         fields = {}
         mapping = cls._VALUE_FIELDS.get(row['type'],
                                        [('record', None, ('record',))])
@@ -219,12 +224,16 @@ class ClouDNSClient(object):
 
     @classmethod
     def fields_from_value(cls, rrset_type, value):
+        if rrset_type == 'DS':
+            return DsCodec.fields(value)
         if rrset_type in cls._VALUE_FIELDS:
             fields = {field: getattr(value, attr)
                       for field, attr, _ in cls._VALUE_FIELDS[rrset_type]}
             if rrset_type in ('MX', 'SRV'):
                 fields['record'] = fields['record'].rstrip('.')
             return fields
+        if rrset_type == 'NS':
+            return {'record': str(value).rstrip('.')}
         if rrset_type in ('TXT', 'SPF'):
             # This also works with octoDNS versions preceding TxtValue.
             value = str(value).replace(r'\;', ';')
@@ -268,6 +277,7 @@ class ClouDNSProvider(BaseProvider):
             "CAA",
             "CNAME",
             "DNAME",
+            "DS",
             "MX",
             "NS",
             "PTR",
@@ -312,6 +322,48 @@ class ClouDNSProvider(BaseProvider):
     _data_for_AAAA = _data_for_multiple
     _data_for_SPF = _data_for_multiple
     _data_for_NS = _data_for_multiple
+
+    def zone(self, zone_name):
+        return self._client.zone(zone_name)
+
+    def zone_create(self, zone_name, zone_type, master_ip=None):
+        return self._client.zone_create(zone_name, zone_type, master_ip=master_ip)
+
+    def _data_for_DS(self, _type, records):
+        for row in records:
+            DsCodec.validate_row(row)
+        return {"ttl": int(records[0]['ttl']), "type": _type,
+                "values": [DsCodec.from_row(row) for row in records]}
+
+    def _ds_operations(self, change):
+        record = change.new or change.existing
+        return ds_operations(self.zone_records(record.zone), record,
+                             deleting=change.new is None)
+
+    def _apply_ds(self, change):
+        record = change.new or change.existing
+        for action, record_id, fields in self._ds_operations(change):
+            if action == 'add':
+                self._client.record_create(record.zone.name[:-1], 'DS',
+                    record.name, [DsCodec.from_row(fields)], record.ttl)
+            elif action == 'mod':
+                # Omit status/note/failover: mod-record leaves them intact.
+                self._client.record_mod(record.zone.name[:-1], record_id,
+                                        record.name, record.ttl, fields)
+            else:
+                self._client.record_delete(record.zone.name[:-1], record_id)
+
+    def _extra_changes(self, existing, desired, changes):
+        extra = super()._extra_changes(existing, desired, changes)
+        changed = {(c.record.name, c.record._type) for c in changes}
+        for record in desired.records:
+            if record._type != 'DS' or (record.name, 'DS') in changed:
+                continue
+            old = next((candidate for candidate in existing.records
+                        if candidate.name == record.name and candidate._type == 'DS'), None)
+            if old is not None and self._ds_operations(Update(old, record)):
+                extra.append(Update(old, record))
+        return extra
 
     def zone(self, zone_name):
         return self._client.zone(zone_name)
@@ -422,6 +474,8 @@ class ClouDNSProvider(BaseProvider):
             _type = record["type"]
             
             if _type not in self.SUPPORTS:
+                continue
+            if _type == 'DS' and not DsCodec.active(record):
                 continue
 
             values[record["host"]][_type].append(record)
@@ -583,6 +637,8 @@ class ClouDNSProvider(BaseProvider):
         }
 
     def _apply_create(self, change):
+        if change.record._type == 'DS':
+            return self._apply_ds(change)
         new = change.new      
         if hasattr(new, 'values'):
             for value in new.values:
@@ -638,6 +694,8 @@ class ClouDNSProvider(BaseProvider):
         return operations
 
     def _apply_update(self, change):
+        if change.record._type == 'DS':
+            return self._apply_ds(change)
         existing = change.existing
         zone = existing.zone
         if self._is_ttl_only(change):
@@ -669,6 +727,13 @@ class ClouDNSProvider(BaseProvider):
             return
 
         records, to_create = self._legacy_value_operations(change)
+        if existing._type == 'NS' and to_create:
+            # ClouDNS requires a delegation while DS records exist. Keep at
+            # least one NS throughout replacement of the entire NS rrset.
+            new = change.new.copy()
+            new.values = sorted(to_create)
+            self._apply_create(Change(existing=existing, new=new))
+            to_create = set()
         for record in records:
             self._client.record_delete(zone.name[:-1], record['id'])
         if to_create is None:
@@ -766,6 +831,10 @@ class ClouDNSProvider(BaseProvider):
         '''
         if not to_delete:
             return []
+        if existing._type == 'NS':
+            targets = {str(value).rstrip('.').lower() for value in to_delete}
+            return [row for row in records
+                    if row['record'].rstrip('.').lower() in targets]
         if existing._type not in ('MX', 'SRV'):
             return [row for row in records if row['record'] in to_delete]
         obsolete = existing.copy()
@@ -890,6 +959,8 @@ class ClouDNSProvider(BaseProvider):
         return records
 
     def _apply_delete(self, change):
+        if change.record._type == 'DS':
+            return self._apply_ds(change)
         existing = change.existing
         zone = existing.zone
         record_ids = self._delete_record_ids(existing)
@@ -905,16 +976,56 @@ class ClouDNSProvider(BaseProvider):
                     existing.fqdn, existing._type))
         return [row['id'] for row in rows]
 
+    def _preflight_ds_delegations(self, plan):
+        # Inspect actual API rows and only the changes this plan will apply.
+        # This also works when processors/filters omit records from a plan.
+        relevant = [c for c in plan.changes if c.record._type in ('NS', 'DS')]
+        if not relevant:
+            return
+        rows = self.zone_records(plan.desired)
+        for name in {c.record.name for c in relevant}:
+            bucket = [r for r in rows.values() if r['host'] == name]
+            ns = any(r['type'] == 'NS' and DsCodec.active(r) for r in bucket)
+            ds = any(r['type'] == 'DS' for r in bucket)
+            inactive_ds = any(r['type'] == 'DS' and not DsCodec.active(r)
+                              for r in bucket)
+            for change in relevant:
+                if change.record.name != name:
+                    continue
+                present = change.new is not None and bool(change.new.values)
+                if change.record._type == 'NS':
+                    ns = present
+                else:
+                    # Inactive DS rows are operator-owned and never deleted.
+                    ds = present or inactive_ds
+            if ds and not ns:
+                raise ProviderException(
+                    'DS records require an active NS delegation at {}{}'.format(
+                        name + '.' if name else '', plan.desired.name))
+
+    @staticmethod
+    def _delegation_change_order(change):
+        # Keep the existing order within each group. NS updates add their new
+        # values before deleting old ones, so they never remove the last NS.
+        if change.new is None:
+            return 0 if change.record._type == 'DS' else 1
+        if change.record._type == 'NS':
+            return 2
+        return 3
+
     def _apply(self, plan):
         desired = plan.desired
         
-        changes = plan.changes
+        changes = sorted(plan.changes, key=self._delegation_change_order)
         zone_name = desired.name[:-1]
         self.log.debug("_apply: zone=%s, len(changes)=%d", desired.name, len(changes))
 
         try:
+            self._preflight_ds_delegations(plan)
             for change in changes:
-                if change.__class__.__name__ == 'Update':
+                if change.record._type == 'DS':
+                    self._ds_operations(change)
+                elif change.__class__.__name__ == 'Update':
                     if self._is_ttl_only(change):
                         self._ttl_operations(change)
                     elif change.existing.ttl != change.new.ttl:

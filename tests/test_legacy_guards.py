@@ -123,7 +123,7 @@ def test_guard_preflight_prevents_earlier_plan_writes_and_clears_cache(case):
 def test_unmatched_ns_removal_does_not_add_replacement_and_report_success():
     provider, existing = fixture('NS', ['old.example.net.'], rows={
         '1': dict(id='1', host='www', type='NS', ttl='300', status=1,
-                  record='old.example.net'),
+                  record='unmatched.example.net'),
     })
     with pytest.raises(ProviderException, match='Update removals matched no active API rows'):
         provider._apply_update(update(existing, ['new.example.net.']))

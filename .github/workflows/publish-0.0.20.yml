@@ -1,0 +1,123 @@
+name: Publish approved 0.0.20
+
+on:
+  push:
+    branches: [release/0.0.19]
+    paths: [.github/workflows/publish-0.0.20.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-pypi
+  cancel-in-progress: false
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: '3.8'
+            octodns: '0.9.17'
+          - python: '3.8'
+            octodns: '1.10.0'
+          - python: '3.10'
+            octodns: '1.3.0'
+          - python: '3.10'
+            octodns: '1.22.0'
+          - python: '3.12'
+            octodns: '1.22.0'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install dependencies and test without live credentials
+        run: |
+          python -m pip install -e '.[test]' 'octodns==${{ matrix.octodns }}'
+          python -m pytest tests/ --disable-network -q
+
+  compatibility-python36:
+    runs-on: ubuntu-22.04
+    container:
+      image: python:3.6.15-bullseye@sha256:d097a4907a8ec079df5ac31872359c2de510f82214c0448e926393b376d3b60d
+    strategy:
+      fail-fast: false
+      matrix:
+        octodns: ['0.9.17', '0.9.21']
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Test source and installed wheel on Python 3.6
+        run: |
+          python -m pip install 'pip==21.3.1' 'setuptools==59.6.0' 'wheel==0.37.1'
+          python -m pip install -e '.[test]' 'octodns==${{ matrix.octodns }}'
+          python -m pip check
+          python -m pytest tests/ --disable-network -q
+          python setup.py bdist_wheel --dist-dir "$RUNNER_TEMP/legacy-wheel"
+          python -m pip install --no-deps --force-reinstall "$RUNNER_TEMP/legacy-wheel/"*.whl
+          mkdir "$RUNNER_TEMP/legacy-installed-tests"
+          cp -r tests docs scripts "$RUNNER_TEMP/legacy-installed-tests/"
+          cd "$RUNNER_TEMP/legacy-installed-tests"
+          python -c 'import octodns_cloudns as c; assert c.__version__ == "0.0.20"; assert "DS" in c.ClouDNSProvider.SUPPORTS; assert "site-packages" in c.__file__; print(c.__file__)'
+          python -m pytest tests/ --disable-network -q
+
+  publish:
+    needs: [compatibility, compatibility-python36]
+    if: github.repository == 'ClouDNS/octodns_cloudns' && github.ref == 'refs/heads/release/0.0.19'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build and publishing tools
+        run: python -m pip install 'build>=1,<2' 'twine>=6,<8'
+      - name: Build or resume approved release artifacts
+        run: |
+          python scripts/publish_0020.py prepare "$RUNNER_TEMP/release-0.0.20"
+          python -m twine check "$RUNNER_TEMP/release-0.0.20"/*.whl "$RUNNER_TEMP/release-0.0.20"/*.tar.gz
+      - name: Verify wheel installation and tests before publication
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel-0.0.20"
+          "$RUNNER_TEMP/wheel-0.0.20/bin/python" -m pip install "$RUNNER_TEMP/release-0.0.20/"*.whl pytest pytest-cov pytest-network requests-mock 'octodns==1.22.0'
+          mkdir "$RUNNER_TEMP/wheel-installed-tests"
+          cp -r tests docs scripts "$RUNNER_TEMP/wheel-installed-tests/"
+          cd "$RUNNER_TEMP/wheel-installed-tests"
+          "$RUNNER_TEMP/wheel-0.0.20/bin/python" -c 'import octodns_cloudns as c; assert c.__version__ == "0.0.20"; assert "DS" in c.ClouDNSProvider.SUPPORTS; assert "site-packages" in c.__file__; print(c.__file__)'
+          "$RUNNER_TEMP/wheel-0.0.20/bin/python" -m pytest tests/ --disable-network -q
+      - name: Verify source distribution installation before publication
+        run: |
+          "$RUNNER_TEMP/wheel-0.0.20/bin/python" -m pip install --no-deps --force-reinstall "$RUNNER_TEMP/release-0.0.20/"*.tar.gz
+          cd "$RUNNER_TEMP/wheel-installed-tests"
+          "$RUNNER_TEMP/wheel-0.0.20/bin/python" -c 'import octodns_cloudns as c; assert c.__version__ == "0.0.20"; assert "DS" in c.ClouDNSProvider.SUPPORTS; assert "site-packages" in c.__file__; print(c.__file__)'
+          "$RUNNER_TEMP/wheel-0.0.20/bin/python" -m pytest tests/ --disable-network -q
+      - name: Publish exact-source GitHub tag, release and checked assets
+        run: python scripts/publish_0020.py github "$RUNNER_TEMP/release-0.0.20"
+      - name: Publish missing PyPI files without masking hash conflicts
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+          TWINE_NON_INTERACTIVE: '1'
+        run: python scripts/publish_0020.py upload "$RUNNER_TEMP/release-0.0.20"
+      - name: Verify PyPI hashes
+        run: python scripts/publish_0020.py verify "$RUNNER_TEMP/release-0.0.20"
+      - name: Verify installation from PyPI in a fresh environment
+        run: |
+          python -m venv "$RUNNER_TEMP/installed-0.0.20"
+          "$RUNNER_TEMP/installed-0.0.20/bin/python" -m pip install --no-cache-dir --index-url https://pypi.org/simple 'octodns-cloudns==0.0.20' 'octodns==1.22.0'
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/installed-0.0.20/bin/python" -c 'import octodns_cloudns as c; from importlib.metadata import version; assert c.__version__ == version("octodns-cloudns") == "0.0.20"; assert "DS" in c.ClouDNSProvider.SUPPORTS; assert hasattr(c.ClouDNSProvider, "_delete_record_ids"); print("Installed PyPI 0.0.20 verified")'

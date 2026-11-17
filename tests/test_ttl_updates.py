@@ -156,7 +156,7 @@ def test_root_ns_and_unrelated_rows():
     rows['3'] = dict(rows['1'], id='3', host='other')
     rows['4'] = dict(rows['1'], id='4', type='TXT')
     provider._apply_update(change)
-    assert [c.args[1] for c in provider._client.record_mod.call_args_list] == ['1', '2']
+    assert [c[0][1] for c in provider._client.record_mod.call_args_list] == ['1', '2']
 
 
 def test_ttl_only_a_with_real_matching_does_not_silently_succeed():
@@ -237,7 +237,7 @@ def test_api_map_key_is_used_when_row_id_is_omitted():
     provider, change, rows = provider_and_change()
     del rows['1']['id']
     provider._apply_update(change)
-    assert provider._client.record_mod.call_args.args[1] == '1'
+    assert provider._client.record_mod.call_args[0][1] == '1'
 
 
 @pytest.mark.parametrize(
@@ -273,7 +273,7 @@ def test_value_diff_does_not_mutate_desired_for_second_target():
     provider._apply_update(change)
     assert change.new.data == before
     provider._client.record_create.assert_called_once()
-    assert provider._client.record_create.call_args.kwargs['rrset_values'] == [
+    assert provider._client.record_create.call_args[1]['rrset_values'] == [
         '192.0.2.2'
     ]
 
@@ -417,7 +417,7 @@ def test_transport_timeout_is_bounded_and_not_retried():
         client.record_delete('example.com', '1')
     assert 'password' not in str(error.value)
     assert client._session.post.call_count == 1
-    assert client._session.post.call_args.kwargs['timeout'] == (10, 30)
+    assert client._session.post.call_args[1]['timeout'] == (10, 30)
 
 
 def test_round_trip_apply_converges_and_dry_run_does_not_write(requests_mock):
@@ -477,7 +477,7 @@ def test_ttl_updates_preserve_verified_metadata(record_type, metadata):
             k: v for k, v in before[record_id].items() if k != 'ttl'
         }
     for call in provider._client.record_mod.call_args_list:
-        fields = call.args[4]
+        fields = call[0][4]
         assert not any(key in fields for key in ('notes', 'note', 'status', 'failover'))
 
 
